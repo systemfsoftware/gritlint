@@ -42,6 +42,8 @@ $manifest_dir <: $dir,
 
 The bad case `root-reference-only` keeps its files at the case root and asserts the `typecheck` script pair's range in the root `package.json`. It failed before the change and passes after it.
 
+Five `source-resolution` rules carried the same capture: `api-extractor-tsconfig`, `export-map-order`, `internals-export-map`, `publish-config-exports` and `tsconfig-paths`. Each took the same change, with a root-level bad case that failed before it.
+
 ## Why this works
 
 A root `tsconfig.json` binds `$dir` to `""`. The join holds only if the `package.json` clause can also bind `""`, so both captures must allow the empty alternative. Widening only one side still fails at the root.
@@ -50,10 +52,11 @@ A root `tsconfig.json` binds `$dir` to `""`. The join holds only if the `package
 
 - A directory capture used in a multifile join matches the empty directory: `(.*/|)`, never `(.*/)`.
 - Every such join has at least one case whose files sit at the case root, so the empty-directory binding is exercised.
+- Every such join also has a case that pairs a root file with a nested one. The empty capture must not join them: `""` is a directory like any other, not a prefix of every directory.
 
 ## Prevention
 
-Find rules that still use the slash-only form:
+Find rules that use the slash-only form (none remain):
 
 ```sh
 git grep -n -E 'r"\(\.\*/\)' -- 'packs/*/rules'

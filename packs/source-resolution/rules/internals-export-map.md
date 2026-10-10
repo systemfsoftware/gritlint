@@ -25,14 +25,14 @@ declaring `devExports` nowhere, and adding this package's own build to lint's
 language json
 multifile {
   bubble($dir, $tsdown) file($name, $body) where {
-    if ($name <: r"(.*/)tsdown\.config\.ts"($dir)) {
+    if ($name <: r"(.*/|)tsdown\.config\.ts"($dir)) {
       $tsdown = $filename
     } else {
       true
     }
   },
   bubble($dir, $tsdown) file($name, $body) where {
-    $name <: r"(.*/)package\.json"($dir),
+    $name <: r"(.*/|)package\.json"($dir),
     $program <: contains `"exports": $exports` where {
       $exports <: contains `$subpath: { $cond: $_, "types": $_, "default": $_ }` where {
         $cond <: condition()

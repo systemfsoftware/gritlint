@@ -24,12 +24,12 @@ and letting the export map's condition do the work.
 language json
 multifile {
   bubble($dir, $package) file($name, $body) where {
-    $name <: r"(.*/)package\.json"($dir),
+    $name <: r"(.*/|)package\.json"($dir),
     $program <: contains `"name": $declared`,
     $declared <: r"\"(.*)\""($package)
   },
   bubble($dir, $key, $package) file($name, $body) where {
-    $name <: r"(.*/)tsconfig[^/]*\.json"($config_dir),
+    $name <: r"(.*/|)tsconfig[^/]*\.json"($config_dir),
     $config_dir <: $dir,
     $program <: contains `"paths": $paths`,
     $paths <: contains `$mapped: $target`,
