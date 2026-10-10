@@ -49,6 +49,8 @@ rustPlatform.buildRustPackage {
   pname = "gritlint";
   inherit version;
 
+  # Only what cargo compiles: a flake, workflow or docs edit must not move the
+  # src hash and rebuild the Rust output.
   src = lib.fileset.toSource {
     root = ../.;
     fileset = lib.fileset.unions [

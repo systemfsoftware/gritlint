@@ -2,7 +2,7 @@
 title: File-shape conventions run on gritlint, our own CLI on the gritql engine
 date: "2026-09-25"
 category: tooling-decisions
-module: systemfsoftware
+module: gritlint
 problem_type: tooling_decision
 component: tooling
 severity: medium
@@ -19,7 +19,7 @@ related_components:
   - crates/gritlint_core
   - packs
   - nix/gritlint.nix
-  - package.json
+  - npm/gritlint/package.json
 tags:
   - gritql
   - gritlint
@@ -91,4 +91,4 @@ per-platform npm packages behind a launcher with no postinstall step.
 
 ## Related
 
-- [dprint-from-the-repo-flake.md](dprint-from-the-repo-flake.md): the flake delivery shape gritlint reuses
+- [dprint-from-the-repo-flake.md](https://github.com/systemfsoftware/systemfsoftware/blob/df908ddfe497e53c1c03b92519a96c913c441a58/docs/solutions/tooling-decisions/dprint-from-the-repo-flake.md) (in the monorepo): the flake delivery shape gritlint reuses

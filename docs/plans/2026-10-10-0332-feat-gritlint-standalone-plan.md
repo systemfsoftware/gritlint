@@ -3,12 +3,11 @@ title: gritlint as a standalone repository - Plan
 type: feat
 date: 2026-10-10
 topic: gritlint-standalone
-supersedes: docs/plans/2026-10-10-0141-feat-gritlint-standalone-plan.md
+supersedes: docs/plans/2026-10-10-0209-feat-gritlint-standalone-plan.md
 artifact_contract: ce-unified-plan/v1
 product_contract_source: ce-brainstorm
 execution: code
 source_commit: systemfsoftware/systemfsoftware@df908ddfe497e53c1c03b92519a96c913c441a58
-supersedes: docs/plans/2026-10-09-2150-feat-import-gritlint-plan.md
 ---
 
 # gritlint as a standalone repository - Plan
@@ -61,12 +60,12 @@ GritQL stays the engine. Its multifile patterns and offline execution under bubb
 
 - R5. `packages.<system>.gritlint` is the bubblewrap-sandboxed CLI and `packages.<system>.gritlint-unwrapped` is the plain build, for `x86_64-linux` and `aarch64-linux`. No darwin outputs.
 - R6. Evaluating any output for `x86_64-windows` throws a message that names gritlint and both supported systems.
-- R7. `nix flake check` builds the sandboxed package and fails when `packages.<system>.gritlint` is not the sandboxed derivation.
+- R7. `nix flake check` builds the sandboxed package and fails when `packages.<system>.gritlint` stops isolating a run (it reads outside the working directory, writes the working directory, or keeps the caller's environment), when that name is bound to anything but the sandbox wrapper, or when `packages.<system>.gritlint-unwrapped` is not the compiled binary.
 
 **PR1 — gates**
 
 - R8. Rust gate: `scripts/tools/gate-rust.sh` runs unchanged on every PR and on `main`. It covers fmt, clippy `-D warnings`, the `decide.rs` loop check, the workspace tests, `gritlint test packs`, schema drift, the network-feature check and `cargo deny`.
-- R9. Dogfood: `gritlint.json` names this repository in `npm-provenance.repositoryUrl`. CI shows the sandboxed binary exiting 1 on a planted `typecheck-build-mode` violation and 0 once fixed, then `./bin/gritlint check` passing on this repository.
+- R9. Dogfood: `gritlint.json` names this repository in `npm-provenance.repositoryUrl`. CI shows the sandboxed binary exiting 1 on a planted `typecheck-build-mode` violation and 0 once fixed, exiting 1 under this repository's `gritlint.json` on a published package whose `repository.url` names the monorepo and 0 once it names this repository, each failure naming its rule, then `./bin/gritlint check` passing on this repository.
 - R10. Nix lane: on `x86_64-linux` and `aarch64-linux` hosted runners, the R6 refusal holds and every flake output for that system builds.
 - R11. CI uses standard hosted runners only, no secrets, environments or private repositories, every action pinned by commit SHA, and no executable beyond Nix, bubblewrap, the Rust toolchain and cargo-deny in PR1. Later PRs may add only the KTD9 tools.
 
@@ -108,7 +107,7 @@ GritQL stays the engine. Its multifile patterns and offline execution under bubb
 - AE1. **Covers R5.** **Given** a scratch consumer flake that builds `packages.x86_64-linux.gritlint` from `github:systemfsoftware/systemfsoftware`, **when** only its input URL changes to `github:systemfsoftware/gritlint/<PR1 branch>`, **then** the same attribute builds and `gritlint --version` prints `0.1.0`.
 - AE2. **Covers R6.** **Given** this flake, **when** `nix eval --raw .#packages.x86_64-windows.gritlint` runs, **then** it exits non-zero and stderr names gritlint, `x86_64-linux` and `aarch64-linux`.
 - AE3. **Covers R1.** **Given** `df908ddf` fetched into the clone, **when** every Appendix A path outside Appendix B is compared by blob hash and mode with the import commit, **then** all match.
-- AE4. **Covers R7.** **Given** the flake, **when** `packages.<system>.gritlint` is rebound to `gritlint-unwrapped`, **then** `nix flake check` fails.
+- AE4. **Covers R7.** **Given** the flake, **when** `nix/gritlint-sandbox.nix` drops bubblewrap, binds the working directory writable, binds the host root, or keeps the environment, or `packages.<system>.gritlint` is rebound to `gritlint-unwrapped`, or `gritlint-unwrapped` to the wrapper, **then** `nix flake check` fails.
 - AE5. **Covers R9.** **Given** `npm-provenance.repositoryUrl` set to this repo, **when** `./bin/gritlint check` runs at the root, **then** it exits 0.
 - AE6. **Covers R15, R16.** **Given** the pinned corpus, **when** the benchmark runs the PR1 binary and the PR3 binary, **then** both produce the same findings and the step summary shows both wall times.
 - AE7. **Covers R18.** **Given** a multifile rule that matches in a directory, **when** gritlint reports it in JSON, **then** the location is the engine's range for the matched node, or the run fails naming the rule.
@@ -151,16 +150,16 @@ GritQL stays the engine. Its multifile patterns and offline execution under bubb
 
 ---
 
-## Planning
+## Planning Contract
 
 ### Key Technical Decisions
 
 - KTD1. **The flake carries only gritlint.** Inputs are `nixpkgs` and `rust-overlay`, locked to the monorepo's revisions (Dependencies / Assumptions), so `nix/gritlint.nix`'s `cargoHash` and the store paths stay valid. `forEachSystem`, `rust` and the version read from `Cargo.toml` come from the monorepo's `flake.nix:27-44`, with the refusal message naming gritlint. There is no `comment-checker` input, and no `pnpm-release-management` input until PR6. Governs R5, R6.
-- KTD2. **R7's check compares derivation paths.** `checks.<system>.gritlint-is-sandboxed` evaluates only when `self.packages.<system>.gritlint.drvPath` equals a derivation built independently from `nix/gritlint-sandbox.nix` over `packages.<system>.gritlint-unwrapped`, and throws otherwise. `checks.<system>.gritlint` is the package itself, because `nix flake check` evaluates packages without building them and builds only checks. Governs R7.
-- KTD3. **One CI workflow, two job kinds.** `rust` runs `nix develop --command sh scripts/tools/gate-rust.sh` with the monorepo lane's cargo cache (`checks-lane/action.yml:117-145`), restored everywhere and saved on `main` only. `nix` runs per system: the refusal eval; a build of every attribute under `packages`, `checks` and `devShells` for that system, enumerated with `nix eval` so a new output cannot skip CI; then the planted-violation journey and `./bin/gritlint check` against the binary it just built. Folding the journey into the Nix job reuses that build, where the monorepo's separate `gritlint` lane built it again. The closure cache keyed on the sandboxed output path (`checks-lane/action.yml:149-182`) carries over. Governs R8 to R10.
+- KTD2. **R7's checks run the exported attributes.** `checks.<system>.gritlint-is-sandboxed` rebuilds `packages.<system>.gritlint` with `.override { gritlint = probe; }`, where the probe is a script that exits 1 naming each escape it achieves, and runs it inside the build from a working directory beside a file it must not see. The probe first runs unwrapped and must report escapes, so a probe that sees nothing fails the check. Rebinding the name to `gritlint-unwrapped` fails the `override`, which `nix/gritlint.nix` does not accept. `checks.<system>.gritlint-unwrapped-is-plain` requires `bin/gritlint` to be an ELF binary that prints `gritlint <Cargo.toml version>`. `checks.<system>.gritlint` is the package itself, because `nix flake check` evaluates packages without building them and builds only checks. Governs R7.
+- KTD3. **One CI workflow, two job kinds.** `rust` runs `nix develop --command sh scripts/tools/gate-rust.sh` with the monorepo lane's cargo cache (`checks-lane/action.yml:117-145`), restored everywhere and saved on `main` only. `nix` runs per system: the refusal eval; the AppArmor user-namespace sysctl, which R7's checks need because they run bubblewrap inside the build; a build of every attribute of every flake output that has that system, with output kinds and attribute names both enumerated through `nix eval` so a new output cannot skip CI; then `scripts/tools/gate-journey.sh` and `./bin/gritlint check` against the binary it just built. Folding the journey into the Nix job reuses that build, where the monorepo's separate `gritlint` lane built it again. The closure cache keyed on the sandboxed output path (`checks-lane/action.yml:149-182`) carries over. Governs R8 to R10.
 - KTD4. **Actions pinned by SHA:** `actions/checkout` v7.0.1 `3d3c42e5aac5ba805825da76410c181273ba90b1`, `cachix/install-nix-action` v31.11.1 `13d8dd58da0234aa297dedd986986ccb8e7f3e24`, `actions/cache` v6.1.0 `55cc8345863c7cc4c66a329aec7e433d2d1c52a9`. These are the actions the monorepo lanes already use. Governs R11.
 - KTD5. **The dev shell holds the `rust-toolchain.toml` toolchain and `cargo-deny`.** Nothing else runs in PR1's gate. Governs R8, R11.
-- KTD6. **PR1 adds no tests.** The imported suites run under R8, R7 is a flake check, and R9 is a CI journey; no PR1 behaviour is new, so the admission gate admits nothing. Governs R7 to R9.
+- KTD6. **PR1 adds no tests.** The imported suites run under R8. R7's checks and R9's journey are gates over contracts this plan states, run by `nix flake check` and CI, and each was shown to go red on a planted break. Governs R7 to R9.
 - KTD7. **PR3's baseline is built from git, never checked in.** The benchmark job builds `packages.<system>.gritlint-unwrapped` at PR1's merge commit and at the PR head, so the baseline is reproducible. Governs R16, R17.
 - KTD8. **Test layers for later PRs, from the admission gate.** PR3: a differential check, PR1 binary against PR3 binary on the corpus, inside the benchmark. PR4: in-process tests through `gritlint_core`'s public API, including a regression case for the line-1 fallback. PR5: one fixture case per rule outcome, plus mutation evidence. PR6: one packed-install journey. PR7: in-process LSP tests over `lsp-server`'s in-memory connection, and export snapshots. Only the two CI journeys (R9, R23) run the binary as a process. Governs R15 to R26.
 - KTD9. **Approved tools for later PRs:** crane (a Nix library), cargo-nextest, cargo-deny, cargo-mutants (CI on `main` only), and in PR6 pnpm, node, `pnpm-release-management`'s `sandbox` and its reusable workflows at `8cd6e83009531de040cd9c03e1370b4966fd2a12`. For PR7, `lsp-server` (maintained by rust-lang in the rust-analyzer repository) and `lsp-types` (maintained by the gluon-lang organisation), each admitted through cargo-deny. Anything else stops for approval. Governs R11.
@@ -171,10 +170,10 @@ GritQL stays the engine. Its multifile patterns and offline execution under bubb
 flowchart TB
   subgraph CI["PR1 CI (ci.yml)"]
     R["rust: nix develop -> gate-rust.sh<br/>fmt, clippy, loop check, tests,<br/>test packs, schema drift, features, deny"]
-    N["nix x86_64-linux and aarch64-linux:<br/>windows refusal eval -> build every output<br/>-> planted journey -> ./bin/gritlint check"]
+    N["nix x86_64-linux and aarch64-linux:<br/>windows refusal eval -> build every output<br/>-> gate-journey.sh -> ./bin/gritlint check"]
   end
   F["flake.nix"] -->|"packages.gritlint = sandbox(unwrapped)"| N
-  F -->|checks.gritlint-is-sandboxed| N
+  F -->|"checks.gritlint-is-sandboxed, gritlint-unwrapped-is-plain"| N
   F -->|devShells.default| R
 ```
 
@@ -222,7 +221,7 @@ flowchart TB
 - **Test scenarios:**
   - `nix build .#packages.x86_64-linux.gritlint` succeeds and `result/bin/gritlint --version` prints `0.1.0`.
   - AE2 holds.
-  - AE4: a scratch rebind of `packages.gritlint` to `gritlint-unwrapped` fails `nix flake check`; the probe is reverted.
+  - AE4: each break it lists, made in a scratch copy, fails the matching check; the copies are deleted.
   - `nix flake check` passes.
   - AE1 after the branch is pushed: a scratch consumer flake outside the repo builds `packages.x86_64-linux.gritlint` through `github:systemfsoftware/gritlint/feat/import-gritlint`. The result goes in the PR body.
 - **Verification:** the scenarios above, run locally.
@@ -232,12 +231,12 @@ flowchart TB
 - **Goal:** the PR head shows the Rust gate, the Nix build of every output on both systems, and the dogfood journey.
 - **Requirements:** R8 to R11; KTD3, KTD4.
 - **Dependencies:** U2, U3.
-- **Files:** `.github/workflows/ci.yml`.
-- **Approach:** KTD3. Triggers are pull requests to `main`, pushes to `main` and `workflow_dispatch`, with `permissions: contents: read`; concurrency cancels superseded PR runs.
+- **Files:** `.github/workflows/ci.yml`, `scripts/tools/gate-journey.sh`.
+- **Approach:** KTD3. Triggers are every pull request, whatever its base, so stacked PRs run CI, plus pushes to `main` and `workflow_dispatch`, with `permissions: contents: read`; concurrency cancels superseded PR runs.
 - **Test scenarios:**
   - Locally, `nix develop --command sh scripts/tools/gate-rust.sh` exits 0.
-  - Locally, the planted-violation script exits 1 and then 0 against the built binary, where this host permits user namespaces.
-  - In CI, the job fails if the planted violation does not exit 1 (carried-over logic).
+  - Locally, `sh scripts/tools/gate-journey.sh <sandboxed gritlint>` exits 0, where this host permits user namespaces.
+  - The journey exits 1 naming the case when a planted violation does not exit 1 or does not name its rule.
 - **Verification:** the `rust` job and both `nix` jobs green on the PR head; job durations recorded as PR2's baseline.
 
 ### U5. Crane, nextest, MSRV and CI cost (PR2)
@@ -311,20 +310,20 @@ flowchart LR
 
 ---
 
-## Verification Contract (PR1)
+## Verification Contract
 
 | Gate | Command or check | Proves |
 | --- | --- | --- |
 | Provenance | AE3 blob-hash and mode comparison | R1 |
 | Ancestry | `git merge-base HEAD df908ddfe497e53c1c03b92519a96c913c441a58` exits 1 | R2 |
 | Rust gate | `nix develop --command sh scripts/tools/gate-rust.sh` | R3, R8 |
-| Flake | `nix flake check`; AE2; the AE4 probe; `nix build` of each output | R5 to R7 |
+| Flake | `nix flake check`; AE2; the AE4 probes; `nix build` of each output | R5 to R7 |
 | Licence | root `LICENSE` and `npm/gritlint/LICENSE` name "System F Software" and carry the Iuvo AI and Biome Developers notices; `Cargo.toml` declares `license = "MIT"` | R4 |
-| Dogfood | `./bin/gritlint check`; the planted journey | R9 |
+| Dogfood | `./bin/gritlint check`; `scripts/tools/gate-journey.sh` | R9 |
 | Consumer switch | AE1 scratch consumer flake | R5 |
 | CI | `ci.yml` green on the PR head on both systems, read through `run_watch` | R8 to R11 |
 
-## Definition of Done (PR1)
+## Definition of Done
 
 - Every PR1 unit's verification holds, and AE1, AE3 and the AE4 probe are recorded in the PR body.
 - One PR from `feat/import-gritlint` into `main`, a single-layer `gh stack`, CI green on its head.
@@ -359,10 +358,11 @@ flowchart LR
 | Path | Change |
 | --- | --- |
 | `Cargo.toml` | `[workspace.package] repository` |
-| `nix/gritlint.nix` | `meta.homepage`; the "whole monorepo" comment |
+| `nix/gritlint.nix` | `meta.homepage`; the "whole monorepo" comment reworded |
 | `gritlint.json` | `repositoryUrl`; `repos/**` ignore removed |
 | `npm/gritlint/LICENSE` | first holder "System F Software" |
 | `bin/gritlint` | no-nix message |
+| `docs/solutions/tooling-decisions/gritlint-conventions-platform.md` | `module`, `related_components`, and the dprint link pointed at the monorepo at `df908ddf` |
 
 Root `LICENSE`, the one pre-existing file, gains the GritQL notices.
 
@@ -371,6 +371,6 @@ Root `LICENSE`, the one pre-existing file, gains the GritQL notices.
 | Path | Unit |
 | --- | --- |
 | `flake.nix`, `flake.lock`, `.gitignore` | U3 |
-| `.github/workflows/ci.yml` | U4 |
-| `docs/plans/2026-10-10-0209-feat-gritlint-standalone-plan.md` | this plan |
+| `.github/workflows/ci.yml`, `scripts/tools/gate-journey.sh` | U4 |
+| `docs/plans/2026-10-10-0332-feat-gritlint-standalone-plan.md` | this plan |
 | a `docs/solutions/` learning from ce-compound, if one is recorded | — |
