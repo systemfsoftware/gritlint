@@ -534,6 +534,30 @@ fn a_multifile_finding_goes_to_the_first_matched_file_its_locator_matches() {
 }
 
 #[test]
+fn a_multifile_locator_matching_several_nodes_takes_the_earliest_in_the_first_file() {
+    let temp = tempfile::tempdir().expect("temp dir");
+    write(
+        temp.path(),
+        "a/package.json",
+        "{\n  \"vite\": \"1\",\n  \"probe\": 1,\n  \"probe\": 2\n}\n",
+    );
+    write(
+        temp.path(),
+        "a/tsconfig.json",
+        "{\n  \"probe\": 0,\n  \"compilerOptions\": {}\n}\n",
+    );
+    let rule = located_rule("join", SIBLING_JOIN, r#"`"probe": $_`"#);
+
+    let outcome = scan(temp.path(), &[rule], &[]).expect("scan");
+
+    assert_eq!(
+        locations(&outcome),
+        ["local/join a/package.json:3:3-3:13"],
+        "both files match the locator: the first path wins, and its earliest node"
+    );
+}
+
+#[test]
 fn a_multifile_locator_that_matches_nothing_leaves_the_first_matched_file_alone() {
     let temp = tempfile::tempdir().expect("temp dir");
     write(temp.path(), "a/package.json", "{\"vite\": \"1\"}\n");
