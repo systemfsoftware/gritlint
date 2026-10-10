@@ -1,7 +1,7 @@
 ---
 reasonCode: vitest-pipeline-missing-condition
 nextAction: Name the source condition in both `resolve.conditions` and `ssr.resolve.conditions`, spreading Vite's default conditions back in.
-locate: `conditions: $list` where { $list <: not contains condition(), $program <: not contains condition() }
+locate: `conditions: $_` where { $program <: not contains condition() }
 ---
 
 # Shared Vitest config: both Vite condition pipelines, named

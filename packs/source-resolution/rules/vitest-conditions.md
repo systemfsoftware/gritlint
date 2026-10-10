@@ -1,7 +1,7 @@
 ---
 reasonCode: vitest-ssr-missing-condition
 nextAction: Import the shared `@systemfsoftware/vitest-config`, or set the source condition on both `resolve.conditions` and `ssr.resolve.conditions`.
-locate: `ssr: $ssr` where { $ssr <: not contains `conditions: [$cond, $...]` where { $cond <: condition() } }
+locate: or { `ssr: $ssr` where { $ssr <: not contains `conditions: [$cond, $...]` where { $cond <: condition() } }, `resolve: $client` as $pair where { $pair <: not within `ssr: $_`, $client <: not contains `conditions: [$cond, $...]` where { $cond <: condition() } } }
 ---
 
 # Vitest config: both condition pipelines, or the shared config
@@ -26,8 +26,16 @@ multifile {
   file($name, $body) where {
     $name <: r".*/vitest\.config\.(?:ts|mts)",
     $program <: not contains sharedVitestConfig(),
-    $program <: not contains `ssr: { resolve: { conditions: [$cond, $...] } }` where {
-      $cond <: condition()
+    $program <: or {
+      not contains `ssr: { resolve: { conditions: [$cond, $...] } }` where {
+        $cond <: condition()
+      },
+      not contains `resolve: $client` as $pair where {
+        $pair <: not within `ssr: $_`,
+        $client <: contains `conditions: [$cond, $...]` where {
+          $cond <: condition()
+        }
+      }
     }
   }
 }
