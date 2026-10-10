@@ -5,7 +5,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 use std::time::{Duration, Instant};
 
-pub const PHASES: [&str; 8] = [
+pub const PHASES: [&str; 9] = [
     "config decode",
     "rule compile",
     "file walk",
@@ -13,6 +13,7 @@ pub const PHASES: [&str; 8] = [
     "file read",
     "execution: parse",
     "execution: match",
+    "execution: locate",
     "report output",
 ];
 
@@ -76,8 +77,12 @@ pub fn run(config_path: &Path, corpus: &Path, packs: &[EmbeddedFile]) -> Result<
     let read_wall = clock.elapsed();
 
     let clock = Instant::now();
-    let outcome = decide::scan(&plan, &sources).map_err(message)?;
+    let matched = decide::match_rules(&plan, &sources).map_err(message)?;
     let scan_wall = clock.elapsed();
+
+    let clock = Instant::now();
+    let outcome = decide::locate(matched, &sources).map_err(message)?;
+    let locate_wall = clock.elapsed();
 
     let clock = Instant::now();
     let rendered = encode::render_json(&outcome).map_err(message)?;
@@ -112,6 +117,7 @@ pub fn run(config_path: &Path, corpus: &Path, packs: &[EmbeddedFile]) -> Result<
             read_wall,
             census.wall,
             match_wall,
+            locate_wall,
             render_wall,
         ],
         total: decode_wall
@@ -120,6 +126,7 @@ pub fn run(config_path: &Path, corpus: &Path, packs: &[EmbeddedFile]) -> Result<
             + plan_wall
             + read_wall
             + scan_wall
+            + locate_wall
             + render_wall,
         counts: Counts {
             walked: walked_count,

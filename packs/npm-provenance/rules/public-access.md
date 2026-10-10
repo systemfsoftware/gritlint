@@ -1,3 +1,9 @@
+---
+reasonCode: missing-public-access
+nextAction: Add `"access": "public"` to the package's `publishConfig`.
+locate: or { `"access": $value` where { $value <: not `"public"`, $value <: within `"publishConfig": $_` }, `"publishConfig": $publish` where { $publish <: not contains `"access": $_` } }
+---
+
 # A public scoped package declares public access
 
 A `package.json` without `"private": true` whose name is scoped (`@scope/name`)

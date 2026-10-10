@@ -98,6 +98,7 @@
               then (crane.mkLib pkgs).overrideToolchain (p: p.rust-bin.stable.${msrv}.minimal)
               else null;
             gritlint = exported.gritlint-unwrapped;
+            sandboxed = exported.gritlint;
           };
         in
         gate

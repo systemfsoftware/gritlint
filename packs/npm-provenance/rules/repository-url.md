@@ -1,3 +1,9 @@
+---
+reasonCode: repository-url-mismatch
+nextAction: Set `repository.url` to the URL this pack's `repositoryUrl` parameter names.
+locate: or { `"url": $url` where { $url <: not repositoryUrl(), $url <: within `"repository": $_` }, `"repository": $repository` where { $repository <: not contains `"url": $_` } }
+---
+
 # A public package names the repository it is published from
 
 A `package.json` without `"private": true` must declare `repository.url`, and the

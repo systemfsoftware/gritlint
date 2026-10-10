@@ -1,0 +1,1 @@
+npm-provenance/provenance packages/widget/package.json:11:5-11:24

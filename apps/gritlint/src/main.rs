@@ -29,7 +29,7 @@ enum Command {
     #[command(about = "Run a pack's fixtures against its rules.")]
     Test(TestArgs),
     #[command(hide = true, about = "Print the gritlint.json JSON schema.")]
-    Schema,
+    Schema(SchemaArgs),
 }
 
 #[derive(Debug, Args)]
@@ -46,8 +46,27 @@ struct CheckArgs {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
 enum Format {
+    #[value(help = "Every finding, its reason code and next action, and per-rule counts.")]
     Human,
+    #[value(help = "The versioned report; `gritlint schema --report` prints its schema.")]
     Json,
+    #[value(
+        help = "At most 20 findings of at most 200 bytes a line, the count of the rest, and the verdict: at most 22 lines and 4,500 bytes."
+    )]
+    Concise,
+    #[value(help = "One GitHub Actions `::error` annotation per finding.")]
+    Github,
+    #[value(help = "Markdown for `$GITHUB_STEP_SUMMARY`: the verdict and at most 100 findings.")]
+    GithubSummary,
+}
+
+#[derive(Debug, Args)]
+struct SchemaArgs {
+    #[arg(
+        long,
+        help = "Print the `--format json` report schema instead of gritlint.json's."
+    )]
+    report: bool,
 }
 
 #[derive(Debug, Args)]
@@ -67,7 +86,7 @@ fn main() -> ExitCode {
     match Cli::parse().command {
         Command::Check(args) => report_exit(check(&args)),
         Command::Test(args) => report_exit(test(&args)),
-        Command::Schema => report_exit(schema()),
+        Command::Schema(args) => report_exit(schema(&args)),
     }
 }
 
@@ -81,11 +100,15 @@ fn report_exit(result: Result<ExitCode, GritlintError>) -> ExitCode {
     }
 }
 
-fn schema() -> Result<ExitCode, GritlintError> {
-    let text = serde_json::to_string_pretty(&GritlintConfig::schema_for_packs(&embedded_packs()?))
-        .map_err(|error| GritlintError::Render {
-            message: error.to_string(),
-        })?;
+fn schema(args: &SchemaArgs) -> Result<ExitCode, GritlintError> {
+    let schema = if args.report {
+        encode::report_schema()
+    } else {
+        GritlintConfig::schema_for_packs(&embedded_packs()?)
+    };
+    let text = serde_json::to_string_pretty(&schema).map_err(|error| GritlintError::Render {
+        message: error.to_string(),
+    })?;
     emit(&format!("{text}\n"))?;
     Ok(ExitCode::SUCCESS)
 }
@@ -132,6 +155,9 @@ fn check(args: &CheckArgs) -> Result<ExitCode, GritlintError> {
         Format::Json => encode::render_json(&outcome).map_err(|error| GritlintError::Render {
             message: error.to_string(),
         })?,
+        Format::Concise => encode::render_concise(&outcome),
+        Format::Github => encode::render_github(&outcome),
+        Format::GithubSummary => encode::render_github_summary(&outcome),
     };
     emit(&rendered)?;
     Ok(ExitCode::from(decide::exit_code(outcome.verdict())))

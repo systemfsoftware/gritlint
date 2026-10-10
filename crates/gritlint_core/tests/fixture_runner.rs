@@ -15,8 +15,24 @@ use gritlint_core::shell;
 use std::fs;
 use std::path::Path;
 
-const NO_CONSOLE: &str = "language json\n`\"console\": $_`\n";
-const CONDITION_RULE: &str = "language json\ncondition()\n";
+const NO_CONSOLE: &str = "---\nreasonCode: debug-console\nnextAction: Remove the console key.\n---\nlanguage json\n`\"console\": $_`\n";
+const CONDITION_RULE: &str =
+    "---\nreasonCode: condition-found\nnextAction: Remove it.\n---\nlanguage json\ncondition()\n";
+const BASIC_EXPECTED: &str = "pack-one/no-console package.json:1:2-1:20\n";
+
+const LOCATED_JOIN: &str = r#"---
+reasonCode: missing-provenance
+nextAction: Set publishConfig.provenance to true.
+locate: `"provenance": $value` where { $value <: not `true` }
+---
+language json
+multifile {
+  file($name, $body) where {
+    $name <: r".*package\.json",
+    $body <: not contains `"provenance": true`
+  }
+}
+"#;
 
 fn write(base: &Path, path: &str, contents: &str) {
     let target = base.join(path);
@@ -53,6 +69,11 @@ fn a_pack_with_a_bad_and_a_good_case_passes() {
         temp.path(),
         "pack-one/fixtures/no-console/bad/basic/package.json",
         "{\"console\": \"debug\"}",
+    );
+    write(
+        temp.path(),
+        "pack-one/fixtures/no-console/bad/basic/expected-locations.txt",
+        BASIC_EXPECTED,
     );
     write(
         temp.path(),
@@ -97,6 +118,33 @@ fn a_bad_case_that_yields_no_finding_names_the_rule_and_the_case() {
 }
 
 #[test]
+fn a_bad_case_without_expected_locations_fails_listing_what_it_reports() {
+    let temp = tempfile::tempdir().expect("temp dir");
+    write_pack(temp.path(), "pack-one", &[], "no-console.grit", NO_CONSOLE);
+    write(
+        temp.path(),
+        "pack-one/fixtures/no-console/bad/basic/package.json",
+        "{\"console\": \"debug\"}",
+    );
+    write(
+        temp.path(),
+        "pack-one/fixtures/no-console/good/basic/package.json",
+        "{\"name\": \"app\"}",
+    );
+
+    let outcome = run_fixtures(temp.path()).expect("run the fixtures");
+
+    let failures = outcome.failures();
+    assert_eq!(failures.len(), 1, "{outcome:#?}");
+    assert_eq!(failures[0].case().as_str(), "fixtures/no-console/bad/basic");
+    assert!(
+        failures[0].detail().contains(BASIC_EXPECTED.trim_end()),
+        "{}",
+        failures[0].detail()
+    );
+}
+
+#[test]
 fn a_good_case_that_yields_a_finding_names_the_finding() {
     let temp = tempfile::tempdir().expect("temp dir");
     write_pack(temp.path(), "pack-one", &[], "no-console.grit", NO_CONSOLE);
@@ -104,6 +152,11 @@ fn a_good_case_that_yields_a_finding_names_the_finding() {
         temp.path(),
         "pack-one/fixtures/no-console/bad/basic/package.json",
         "{\"console\": \"debug\"}",
+    );
+    write(
+        temp.path(),
+        "pack-one/fixtures/no-console/bad/basic/expected-locations.txt",
+        BASIC_EXPECTED,
     );
     write(
         temp.path(),
@@ -192,6 +245,11 @@ fn a_case_config_supplies_pack_parameters() {
     );
     write(
         temp.path(),
+        "pack-one/fixtures/react/bad/basic/expected-locations.txt",
+        "pack-one/react package.json:1:2-1:15\n",
+    );
+    write(
+        temp.path(),
         "pack-one/fixtures/react/good/basic/package.json",
         "{\"name\": \"app\"}",
     );
@@ -204,4 +262,82 @@ fn a_case_config_supplies_pack_parameters() {
     let outcome = run_fixtures(temp.path()).expect("run the fixtures");
 
     assert!(outcome.passed(), "{outcome:#?}");
+}
+
+fn located_pack(base: &Path, bad_package: &str, expected: &str) {
+    write_pack(base, "pack-one", &[], "provenance.grit", LOCATED_JOIN);
+    write(
+        base,
+        "pack-one/fixtures/provenance/bad/basic/package.json",
+        bad_package,
+    );
+    write(
+        base,
+        "pack-one/fixtures/provenance/bad/basic/expected-locations.txt",
+        expected,
+    );
+    write(
+        base,
+        "pack-one/fixtures/provenance/good/basic/package.json",
+        "{\"publishConfig\": {\"provenance\": true}}",
+    );
+}
+
+#[test]
+fn a_bad_case_reported_at_another_node_than_it_expects_names_the_rule_and_the_case() {
+    let temp = tempfile::tempdir().expect("temp dir");
+    located_pack(
+        temp.path(),
+        "{\n  \"provenance\": \"no\",\n  \"publishConfig\": {\"provenance\": false}\n}\n",
+        "pack-one/provenance package.json:3:21-3:40\n",
+    );
+
+    let outcome = run_fixtures(temp.path()).expect("run the fixtures");
+
+    let failures = outcome.failures();
+    assert_eq!(failures.len(), 1, "{outcome:#?}");
+    assert_eq!(failures[0].rule_id().as_string(), "pack-one/provenance");
+    assert_eq!(failures[0].case().as_str(), "fixtures/provenance/bad/basic");
+    assert!(
+        failures[0]
+            .detail()
+            .contains("reported pack-one/provenance package.json:2:3-2:21"),
+        "{}",
+        failures[0].detail()
+    );
+}
+
+#[test]
+fn a_bad_case_reported_where_it_expects_passes() {
+    let temp = tempfile::tempdir().expect("temp dir");
+    located_pack(
+        temp.path(),
+        "{\n  \"name\": \"pkg\",\n  \"publishConfig\": {\"provenance\": false}\n}\n",
+        "pack-one/provenance package.json:3:21-3:40\n",
+    );
+
+    let outcome = run_fixtures(temp.path()).expect("run the fixtures");
+
+    assert!(outcome.passed(), "{outcome:#?}");
+}
+
+#[test]
+fn a_rule_with_a_locator_but_no_bad_case_asserting_a_range_fails() {
+    let temp = tempfile::tempdir().expect("temp dir");
+    located_pack(
+        temp.path(),
+        "{\"name\": \"pkg\"}",
+        "pack-one/provenance package.json\n",
+    );
+
+    let outcome = run_fixtures(temp.path()).expect("run the fixtures");
+
+    let failures = outcome.failures();
+    assert_eq!(failures.len(), 1, "{outcome:#?}");
+    assert_eq!(failures[0].rule_id().as_string(), "pack-one/provenance");
+    assert!(
+        failures[0].detail().contains("declares `locate`"),
+        "{}",
+        failures[0].detail()
+    );
 }

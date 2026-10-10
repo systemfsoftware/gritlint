@@ -1,9 +1,9 @@
 use crate::domain::{
-    CompiledRule, EmbeddedFile, FixtureCase, FixtureLayout, FixtureRule, FixtureUnit, IgnoreGlobs,
-    Language, NonEmpty, Pack, PackName, ParamName, ParsedRule, RawTree, RelPath, RuleId, RuleName,
-    RuleSource, SelectedFile, SelectedFiles, SourcePath, Sources,
+    CompiledRule, EmbeddedFile, FixtureCase, FixtureLayout, FixtureRule, FixtureUnit, Guidance,
+    IgnoreGlobs, Language, NonEmpty, Pack, PackName, ParamName, ParsedRule, RawTree, ReasonCode,
+    RelPath, RuleId, RuleName, RuleSource, SelectedFile, SelectedFiles, SourcePath, Sources,
 };
-use crate::error::GritlintError;
+use crate::error::{FrontmatterProblem, GritlintError};
 use globset::{Glob, GlobSetBuilder};
 use rayon::prelude::*;
 use regex::Regex;
@@ -16,6 +16,7 @@ use std::sync::LazyLock;
 
 const MANIFEST: &str = "pack.json";
 const RULES_DIR: &str = "rules";
+const EXPECTED_LOCATIONS: &str = "expected-locations.txt";
 
 static FILE_ARGUMENT: LazyLock<Option<Regex>> =
     LazyLock::new(|| Regex::new(r"file\(\s*(\$[A-Za-z_][A-Za-z0-9_]*)").ok());
@@ -196,8 +197,9 @@ pub fn parse_rule(
         |pack| RuleId::in_pack(pack.clone(), name.clone()),
     );
 
+    let (guidance, locate, text) = read_and_blank_frontmatter(source.text(), path)?;
     let (title, message, body) = if is_markdown(path) {
-        let (title, description, body) = parse_markdown(source.text(), path)?;
+        let (title, description, body) = parse_markdown(&text, path)?;
         let message = if description.is_empty() {
             stem.clone()
         } else {
@@ -205,7 +207,7 @@ pub fn parse_rule(
         };
         (title, message, body)
     } else {
-        (stem.clone(), stem.clone(), source.text().to_owned())
+        (stem.clone(), stem.clone(), text)
     };
 
     let language = Language::of_body(&body).ok_or_else(|| GritlintError::RuleNoLanguage {
@@ -222,8 +224,90 @@ pub fn parse_rule(
         source.path().clone(),
         language,
         targets,
-        BTreeMap::new(),
+        guidance,
+        locate,
     ))
+}
+
+const REASON_CODE: &str = "reasonCode";
+const NEXT_ACTION: &str = "nextAction";
+const LOCATE: &str = "locate";
+pub(crate) const FRONTMATTER_KEYS: [&str; 3] = [REASON_CODE, NEXT_ACTION, LOCATE];
+
+fn read_and_blank_frontmatter(
+    text: &str,
+    path: &Path,
+) -> Result<(Guidance, Option<String>, String), GritlintError> {
+    let refuse = |key: &str, problem| GritlintError::RuleFrontmatter {
+        path: path.to_owned(),
+        key: key.to_owned(),
+        problem,
+    };
+    let lines: Vec<&str> = text.lines().collect();
+    let block = match lines.iter().position(|line| !line.trim().is_empty()) {
+        Some(open) if lines.get(open).is_some_and(|line| line.trim() == "---") => {
+            let close = (open + 1..lines.len())
+                .find(|index| lines.get(*index).is_some_and(|line| line.trim() == "---"))
+                .ok_or_else(|| GritlintError::RuleFrontmatterUnclosed {
+                    path: path.to_owned(),
+                })?;
+            Some(open..=close)
+        }
+        _ => None,
+    };
+    let entries = block
+        .clone()
+        .and_then(|block| lines.get(block.start() + 1..*block.end()))
+        .unwrap_or_default();
+
+    let mut values = BTreeMap::<&str, &str>::new();
+    for line in entries
+        .iter()
+        .map(|line| line.trim())
+        .filter(|line| !line.is_empty())
+    {
+        let (key, value) = line
+            .split_once(':')
+            .map_or((line, ""), |(key, value)| (key.trim(), value.trim()));
+        let key = FRONTMATTER_KEYS
+            .into_iter()
+            .find(|known| *known == key)
+            .ok_or_else(|| refuse(key, FrontmatterProblem::Unknown))?;
+        if value.is_empty() {
+            return Err(refuse(key, FrontmatterProblem::Empty));
+        }
+        if values.insert(key, value).is_some() {
+            return Err(refuse(key, FrontmatterProblem::Repeated));
+        }
+    }
+
+    let required = |key: &str| {
+        values
+            .get(key)
+            .copied()
+            .ok_or_else(|| refuse(key, FrontmatterProblem::Missing))
+    };
+    let reason_code = ReasonCode::new(required(REASON_CODE)?)
+        .ok_or_else(|| refuse(REASON_CODE, FrontmatterProblem::NotKebabCase))?;
+    let guidance = Guidance::new(reason_code, required(NEXT_ACTION)?.to_owned());
+    let locate = values.get(LOCATE).map(|value| (*value).to_owned());
+
+    let mut blanked = lines
+        .iter()
+        .enumerate()
+        .map(|(index, line)| {
+            if block.as_ref().is_some_and(|block| block.contains(&index)) {
+                ""
+            } else {
+                line
+            }
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+    if text.ends_with('\n') {
+        blanked.push('\n');
+    }
+    Ok((guidance, locate, blanked))
 }
 
 pub fn load_rules(
@@ -515,12 +599,23 @@ fn fixture_case(
     };
 
     let (files, sources) = select_case_files(tree, case_directory, &ignore)?;
+    let expected_locations = tree
+        .file(&case_directory.join(EXPECTED_LOCATIONS))
+        .map(|file| {
+            file.contents()
+                .lines()
+                .map(str::trim)
+                .filter(|line| !line.is_empty())
+                .map(str::to_owned)
+                .collect()
+        });
     Ok(FixtureCase {
         kind,
         directory: case_directory.to_owned(),
         files,
         sources,
         params,
+        expected_locations,
     })
 }
 
@@ -617,9 +712,8 @@ fn is_markdown(path: &Path) -> bool {
 
 fn parse_markdown(text: &str, path: &Path) -> Result<(String, String, String), GritlintError> {
     let lines: Vec<&str> = text.lines().collect();
-    let start = first_content(&lines);
 
-    let mut cursor = start;
+    let mut cursor = 0;
     let mut title: Option<(usize, String)> = None;
     let mut grit: Option<(usize, usize)> = None;
     while let Some(line) = lines.get(cursor) {
@@ -664,8 +758,7 @@ fn parse_markdown(text: &str, path: &Path) -> Result<(String, String, String), G
     let description = lines
         .iter()
         .enumerate()
-        .skip(start)
-        .take(fence.saturating_sub(start))
+        .take(fence)
         .filter(|(line, _)| Some(*line) != title_line)
         .map(|(_, line)| *line)
         .collect::<Vec<_>>()
@@ -673,21 +766,6 @@ fn parse_markdown(text: &str, path: &Path) -> Result<(String, String, String), G
         .trim()
         .to_owned();
     Ok((title_text, description, body))
-}
-
-fn first_content(lines: &[&str]) -> usize {
-    let Some(mut start) = lines.iter().position(|line| !line.trim().is_empty()) else {
-        return lines.len();
-    };
-    if lines.get(start).is_some_and(|line| line.trim() == "---")
-        && let Some(offset) = lines
-            .iter()
-            .skip(start + 1)
-            .position(|line| line.trim() == "---")
-    {
-        start += offset + 2;
-    }
-    start.min(lines.len())
 }
 
 fn file_targets(body: &str) -> Vec<Regex> {

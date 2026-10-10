@@ -2,6 +2,7 @@ mod breakdown;
 
 use gritlint_core::domain::{EmbeddedFile, RelPath};
 use gritlint_core::shell;
+use std::collections::BTreeMap;
 use std::fmt::Write as _;
 use std::io::Write as _;
 use std::path::Path;
@@ -108,11 +109,19 @@ fn parse(mut args: impl Iterator<Item = String>) -> Result<Args, String> {
 }
 
 fn bench(args: &Args) -> Result<String, String> {
-    let (reference, _) = run(args, Arm::Baseline)?;
-    if reference.code != Some(1) {
+    let (baseline, _) = run(args, Arm::Baseline)?;
+    if baseline.code != Some(1) {
         return Err(format!(
             "the baseline exited {:?}, not 1 with findings, so the corpus or config is broken and a comparison would prove nothing",
-            reference.code
+            baseline.code
+        ));
+    }
+    let (candidate, _) = run(args, Arm::Candidate)?;
+    let (expected, found) = (tally(&baseline)?, tally(&candidate)?);
+    if candidate.code != baseline.code || found != expected {
+        return Err(format!(
+            "the candidate exited {:?} with findings per rule {found:?}; the baseline exited {:?} with {expected:?}",
+            candidate.code, baseline.code
         ));
     }
     let mut walls = Walls::default();
@@ -123,9 +132,13 @@ fn bench(args: &Args) -> Result<String, String> {
         }
         for arm in order {
             let (report, wall) = run(args, arm)?;
+            let reference = match arm {
+                Arm::Baseline => &baseline,
+                Arm::Candidate | Arm::Serial => &candidate,
+            };
             if report.code != reference.code || report.stdout != reference.stdout {
                 return Err(format!(
-                    "round {}: the {} report differs from the baseline's (exit {:?} against {:?}, {} stdout bytes against {})",
+                    "round {}: the {} report differs from its first run (exit {:?} against {:?}, {} stdout bytes against {})",
                     round + 1,
                     arm.label(),
                     report.code,
@@ -137,8 +150,31 @@ fn bench(args: &Args) -> Result<String, String> {
             walls.of(arm).push(wall);
         }
     }
-    let phases = phases(args, &reference)?;
+    let phases = phases(args, &candidate)?;
     Ok(summary(args.rounds, &mut walls) + &phases)
+}
+
+/// Findings per rule id from `--format json`: PR1 names the rule `rule`, the
+/// versioned envelope `ruleId`. Messages and locations may differ by design.
+fn tally(report: &Report) -> Result<BTreeMap<String, usize>, String> {
+    let json: serde_json::Value = serde_json::from_slice(&report.stdout)
+        .map_err(|error| format!("a report is not JSON: {error}"))?;
+    json.get("findings")
+        .and_then(serde_json::Value::as_array)
+        .ok_or("a report has no findings array")?
+        .iter()
+        .map(|finding| {
+            finding
+                .get("ruleId")
+                .or_else(|| finding.get("rule"))
+                .and_then(serde_json::Value::as_str)
+                .map(str::to_owned)
+                .ok_or_else(|| format!("a finding names no rule: {finding}"))
+        })
+        .try_fold(BTreeMap::new(), |mut counts, rule| {
+            *counts.entry(rule?).or_insert(0) += 1;
+            Ok(counts)
+        })
 }
 
 fn phases(args: &Args, reference: &Report) -> Result<String, String> {
@@ -156,7 +192,7 @@ fn phases(args: &Args, reference: &Report) -> Result<String, String> {
                 Ok(run)
             } else {
                 Err(format!(
-                    "breakdown round {}: the in-process report differs from the baseline's (exit {} against {:?}, {} stdout bytes against {})",
+                    "breakdown round {}: the in-process report differs from the candidate's (exit {} against {:?}, {} stdout bytes against {})",
                     round + 1,
                     run.code,
                     reference.code,
@@ -233,7 +269,7 @@ fn summary(rounds: usize, walls: &mut Walls) -> String {
     }
     let _ = writeln!(
         out,
-        "\nSpeedup {:.1}x (single-threaded {:.1}x) over {rounds} rounds on {cores} cores; all three reports byte-identical.",
+        "\nSpeedup {:.1}x (single-threaded {:.1}x) over {rounds} rounds on {cores} cores. The candidate's reports are byte-identical to each other, and its exit code and findings per rule equal the baseline's.",
         baseline.as_secs_f64() / candidate.as_secs_f64(),
         baseline.as_secs_f64() / serial.as_secs_f64(),
     );
@@ -251,7 +287,7 @@ fn phase_table(rounds: usize, runs: &[breakdown::Run]) -> String {
     }
     let total = median(&mut totals);
     let mut out = format!(
-        "\n#### Where one thread spends its time\n\nThe candidate's pipeline in process on one thread, median of {rounds} rounds, each report byte-identical to the baseline's.\n\n| Phase | Median wall | Share |\n| --- | --- | --- |\n"
+        "\n#### Where one thread spends its time\n\nThe candidate's pipeline in process on one thread, median of {rounds} rounds, each report byte-identical to the candidate binary's.\n\n| Phase | Median wall | Share |\n| --- | --- | --- |\n"
     );
     for (phase, column) in breakdown::PHASES.into_iter().zip(&mut columns) {
         let wall = median(column);
@@ -267,7 +303,7 @@ fn phase_table(rounds: usize, runs: &[breakdown::Run]) -> String {
         let counts = &run.counts;
         let _ = writeln!(
             out,
-            "\nFiles: {} walked, {} selected, {} read. Rules: {}. Executions: {} over {} (rule, file) pairs. Parses: {} of {} distinct files, at most {} per file.\n\nParse is timed by parsing each file an execution reads with the engine's parser; match is the scan's wall time minus parse. A multifile rule loads only the files its pattern names, so parse and its counts are upper bounds and match a lower bound.",
+            "\nFiles: {} walked, {} selected, {} read. Rules: {}. Executions: {} over {} (rule, file) pairs. Parses: {} of {} distinct files, at most {} per file.\n\nParse is timed by parsing each file an execution reads with the engine's parser; match is the scan's wall time minus parse. Locate is the locator pass after the scan, its own parses included. A multifile rule loads only the files its pattern names, so parse and its counts are upper bounds and match a lower bound.",
             counts.walked,
             counts.selected,
             counts.read,

@@ -51,4 +51,4 @@ A derived `Debug` describes a whole value, so its cost grows with the value's fi
 
 ## Related Issues
 
-- `docs/plans/2026-10-10-0709-feat-gritlint-standalone-plan.md` R15, KTD18, U6
+- `docs/plans/2026-10-10-0913-feat-gritlint-standalone-plan.md` R15, KTD18, U6

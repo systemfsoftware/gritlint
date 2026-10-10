@@ -1,3 +1,9 @@
+---
+reasonCode: tsconfig-missing-condition
+nextAction: List the source condition in this project's `customConditions`, or extend a preset that carries it.
+locate: `"customConditions": $list` where { $list <: or { `[]`, `[$cond, $...]` where { $cond <: not condition() } } }
+---
+
 # tsconfig project: name the source condition, or extend a config that does
 
 Every `tsconfig*.json` with a non-empty `include` compiles files, and every file

@@ -1,3 +1,9 @@
+---
+reasonCode: export-map-misordered
+nextAction: Declare `exports.devExports` as the condition string in the bundler config, let its `customExports` hook order every subpath, and rebuild.
+locate: `$subpath: $entry` as $pair where { $pair <: within `"exports": $_`, $pair <: or { `$subpath: { "types": $_, $cond: $_, "default": $_ }` where { $cond <: condition() }, `$subpath: { $cond: $_, "default": $_, "types": $_ }` where { $cond <: condition() }, `$subpath: { $cond: $_, "types": $target, "default": $_ }` where { $cond <: condition(), $target <: not includes "./dist/" }, `$subpath: { $first: $_, $second: $_, "default": $_ }` where { $first <: not condition() }, `$subpath: { "types": $_, $cond: $_ }` where { $cond <: condition() }, `$subpath: { $cond: $_, "types": $_ }` where { $cond <: condition() }, `$subpath: { $cond: $_, "default": $_ }` where { $cond <: condition() } } }
+---
+
 # Export map: the source condition comes first, then dist types
 
 Every object subpath of `exports` must list the development source condition

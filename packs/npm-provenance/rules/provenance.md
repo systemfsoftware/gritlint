@@ -1,3 +1,9 @@
+---
+reasonCode: missing-provenance
+nextAction: Add `"provenance": true` to the package's `publishConfig`.
+locate: or { `"provenance": $value` where { $value <: not `true`, $value <: within `"publishConfig": $_` }, `"publishConfig": $publish` where { $publish <: not contains `"provenance": $_` } }
+---
+
 # A public package opts into provenance
 
 A `package.json` without `"private": true` must set
