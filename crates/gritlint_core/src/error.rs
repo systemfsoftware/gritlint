@@ -75,7 +75,7 @@ pub enum GritlintError {
         reason: RelPathRefusal,
     },
     #[error(
-        "{file}:{line}:{column}: target-does-not-parse: {message} Next: fix the syntax at that position; if the language's own compiler accepts it, report the construct to gritlint, and never ignore the file."
+        "{file}:{line}:{column}: target-does-not-parse: {message} Next action: fix the syntax at that position; if the language's own compiler accepts it, report the construct to gritlint, and never ignore the file."
     )]
     TargetParse {
         file: String,
