@@ -1,0 +1,1 @@
+cell-architecture/service-exports-no-layer packages/app/src/console.service.ts:2:10-2:37
