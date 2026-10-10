@@ -33,8 +33,8 @@ parser is regenerated.
 ## Re-pinning the engine
 
 When `Cargo.lock` moves to another GritQL rev, copy that rev's
-`resources/language-metavariables/tree-sitter-typescript` files listed in
-`Cargo.toml`'s `include`, together with `LICENSE`, over this directory, then
+`resources/language-metavariables/tree-sitter-typescript` `Cargo.toml`, the
+files its `include` lists, and `LICENSE` over this directory, then
 re-apply the `common/scanner.h` change. The check in
 `docs/solutions/tooling-decisions/gritlint-conventions-platform.md` lists any
 file left stale.
