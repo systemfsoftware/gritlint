@@ -61,4 +61,4 @@ Nix derivation hashes cover every input path. A wider `src` makes any file in it
 
 ## Related Issues
 
-- `docs/plans/2026-10-10-1309-feat-gritlint-standalone-plan.md` R12, KTD10, KTD13, U5
+- `docs/plans/2026-10-10-1945-feat-gritlint-standalone-plan.md` R12, KTD10, KTD13, U5
