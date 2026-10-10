@@ -47,6 +47,7 @@ jobs:
           status=0
           $CARGO_MUTANTS --workspace || status=$?
           echo "cargo mutants exited $status"
+          # https://mutants.rs/exit-codes.html: 0 all caught, 2 missed, 3 timeouts; any other code is an error.
           case "$status" in
             0 | 2 | 3) ;;
             *) exit "$status" ;;
