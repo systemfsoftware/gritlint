@@ -44,7 +44,7 @@ The bad case `root-reference-only` keeps its files at the case root and asserts 
 
 Five `source-resolution` rules carried the same capture: `api-extractor-tsconfig`, `export-map-order`, `internals-export-map`, `publish-config-exports` and `tsconfig-paths`. Each took the same change, with a root-level bad case that failed before it.
 
-Single-file rules had the same defect without a capture. `tsconfig-condition`, `tsconfig-preset-module-mode`, `tsdown-exports`, `vitest-conditions` and `shared-vitest-config` named their files with `r".*/vitest\.config\.(?:ts|mts)"` and similar patterns, which also require a slash. They now use `r"(?:.*/)?..."`, and each has a root-level bad case. Where a rule also checks a parameter (`presetFiles`, `sharedVitestConfigFile`), the root case sets that parameter in the same form, so the parameter alone decides which files are checked. The group must be non-capturing: a pattern that binds no variable and has a capture group fails every file with `regex pattern matched 1 variables, but expected 0`.
+Single-file rules had the same defect without a capture. `tsconfig-condition`, `tsconfig-preset-module-mode`, `tsdown-exports`, `vitest-conditions` and `shared-vitest-config` named their files with `r".*/vitest\.config\.(?:ts|mts)"` and similar patterns, which also require a slash. They now use `r"(?:.*/)?..."`, and each has a root-level bad case. Two rules also check a parameter (`presetFiles`, `sharedVitestConfigFile`). The values this repository ships and documents (`gritlint.json`, the pack README, the bench config) moved to the same form, and the root cases use them verbatim, so the documented value is the one under test. The group must be non-capturing: a pattern that binds no variable and has a capture group fails every file with `regex pattern matched 1 variables, but expected 0`.
 
 ## Why this works
 
@@ -55,13 +55,13 @@ A root `tsconfig.json` binds `$dir` to `""`. The join holds only if the `package
 - A directory capture used in a multifile join matches the empty directory: `(.*/|)`, never `(.*/)`.
 - A file-name pattern that binds nothing matches the repository root: `(?:.*/)?name`, never `.*/name`.
 - Every such rule has at least one case whose files sit at the case root, so the root path is exercised.
-- Every join also has a case that pairs a root file with a nested one. The empty capture must not join them: `""` is a directory like any other, not a prefix of every directory.
+- A case pairing a root file with a nested one is kept only if a one-step defect makes it fail. In `internals-export-map` it does (`bad/root-bundler-nested-internals`). In `typecheck-build-mode`, deleting the `$manifest_dir <: $dir` join changes no case outcome, so such a case would pin nothing.
 - GritQL regexes match the whole path, so dropping the slash does not let `mytsconfig.json` match `tsconfig.json`.
 
 ## Prevention
 
-Find rules whose path pattern still requires a slash (none remain):
+Find rules and documented parameter values whose path pattern still requires a slash (none remain). The grep catches `.*/x`, `(.*/)x` and `(?:.*/)x`, and passes `(.*/|)` and `(?:.*/)?`:
 
 ```sh
-git grep -n -E 'r"(\(\.\*/\)|\.\*/[a-z])' -- 'packs/*/rules/*.md'
+git grep -n -P 'r\\?"(?:\((?:\?:)?)?\.\*/(?!\|\)|\)\?)' -- 'packs/*/rules/*.md' 'packs/*/README.md' gritlint.json crates/gritlint_bench/effect.gritlint.json
 ```
