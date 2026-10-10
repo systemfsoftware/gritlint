@@ -156,7 +156,7 @@ GritQL stays the engine. Its multifile patterns and offline execution under bubb
 | PR2 | R12 to R14 (Done 7) | PR1 | `feat/crane-ci` |
 | PR3 | R15 to R17 (Done 2) | PR2 | `feat/single-pass-engine` |
 | PR4 | R18, R19 (Done 3) | `main` at `1d60be3` (PR3 squash-merged) | `feat/agent-first-output` |
-| PR5 | R20, R21, R27, R28 (Done 4) | PR4 (#6, head `69f7b67a`) | `feat/pack-fixture-harness` |
+| PR5 | R20, R21, R27, R28 (Done 4) | #10 (`fix/typescript-generic-call-signature-asi`, on #8, on PR4 #6): #8 rewrites `cell-architecture/service-exports-no-layer`, whose cases PR5 adds | `feat/pack-fixture-harness` |
 | PR6 | R22 to R24 (Done 5) | PR5 | `feat/tarball-release` |
 | PR7 | R25, R26 (Done 6) | PR6 | `feat/lsp-biome-export` |
 
@@ -485,11 +485,11 @@ Each locator reports the innermost violating node that exists. "File alone" list
 
 ### E. PR5 cases per rule
 
-From four read-only gap analyses at `69f7b67a` (KTD28), committed in `docs/plans/2026-10-10-1309-pr5-rule-cases/` with each case's files and expected lines. "Existing" counts good / bad cases. "Gaps" counts the clause defects that no existing case fails. One case can catch several gaps, so a row can list fewer cases than gaps. Gaps with no case are covered by the list below the table. Each new case names the clause whose defect it catches.
+From four read-only gap analyses at `69f7b67a` (KTD28), committed in `docs/plans/2026-10-10-1309-pr5-rule-cases/` with each case's files and expected lines. "Existing" counts good / bad cases. "Gaps" counts the clause defects that no existing case fails. One case can catch several gaps, so a row can list fewer cases than gaps. Gaps with no case are covered by the list below the table. Each new case names the clause whose defect it catches. The `cell-architecture` row analyses the rule as it stood at `69f7b67a`. The clauses #8 adds (driver imports, the pure static layer, the field-value branch) come with #8's own cases and were not part of this analysis.
 
 | Rule | Existing (good / bad) | Gaps | New cases (clause caught) |
 | --- | --- | --- | --- |
-| `cell-architecture/service-exports-no-layer` | 8 / 14 | 12 | good `driver-named-service` (`.service.ts` escaped dot); bad `export-let-binding`, `export-var-binding` (`const\|let\|var`); bad `underscored-binding-name` (name classes); bad `export-bound-to-spaced-nested-member` (member chain); good `layer-builder-binding` (`*Layer` anchoring); bad `semicolon-export-binding` (`;?`); bad `multiline-annotated-binding` (`[\s\S]` in the annotation); bad `reexported-layered-name` (`*Layer` re-export arm, digit class); bad `type-reexport-before-violation` (type re-export locate branches); good `underscored-layer-field` (field name class); bad `private-layer-field` (the class-field arm: tree-sitter names a `private readonly` field `public_field_definition`, so the rule reports it) |
+| `cell-architecture/service-exports-no-layer` | 8 / 14 | 12 | good `driver-named-service` (`.service.ts` escaped dot); bad `export-let-binding`, `export-var-binding` (`const\|let\|var`); bad `underscored-binding-name` (name classes); bad `export-bound-to-spaced-nested-member` (member chain); good `layer-builder-binding` (`*Layer` anchoring); bad `semicolon-export-binding` (`;?`); bad `multiline-annotated-binding` (`[\s\S]` in the annotation); bad `reexported-layered-name` (`*Layer` re-export arm, digit class); bad `type-reexport-before-violation` (type re-export locate branches); bad `underscored-layer-field` (the field-name class: #8 widens it to `[A-Za-z0-9_$]*Layer`, and the field's value is a call, so only the name branch reports it); bad `private-layer-field` (the class-field arm: tree-sitter names a `private readonly` field `public_field_definition`, so the rule reports it) |
 | `npm-provenance/provenance` | 2 / 2 | 4 | good `other-json` (`package\.json` escaped dot); bad `private-false` (`"private": true` literal); good `no-name-package` (`"name"` conjunct); bad `provenance-string` (`"provenance": true` literal); bad `provenance-outside-publish-config` (Q9(1): `$publish`, not `$program`, holds the `"provenance": true` test); bad `provenance-false-outside-publish-config` (`locate`'s `within "publishConfig"`) |
 | `npm-provenance/public-access` | 3 / 2 | 3 | good `other-json`; bad `private-false`; good `no-name-package` (same clauses as `provenance`) |
 | `npm-provenance/repository-url` | 2 / 3 | 4 | good `other-json`; bad `private-false`; good `no-name-package`; bad `url-case-mismatch` (exact URL match) |
