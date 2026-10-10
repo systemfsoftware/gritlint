@@ -25,10 +25,10 @@ it string entries that must become `{ types, default }`. Never hand-edit
 language json
 multifile {
   bubble($dir) file($name, $body) where {
-    $name <: r"(.*/)tsdown\.config\.ts"($dir)
+    $name <: r"(.*/|)tsdown\.config\.ts"($dir)
   },
   bubble($dir) file($name, $body) where {
-    $name <: r"(.*/)package\.json"($package_dir),
+    $name <: r"(.*/|)package\.json"($package_dir),
     $package_dir <: $dir,
     or {
       $program <: not contains `"publishConfig": $_`,
