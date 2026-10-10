@@ -1,0 +1,20 @@
+{
+  "name": "@acme/app",
+  "exports": {
+    ".": {
+      "@systemfsoftware/source": "./src/index.ts",
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.mjs"
+    },
+    "./package.json": "./package.json"
+  },
+  "publishConfig": {
+    "exports": {
+      "./tester": {
+        "@systemfsoftware/source": "./src/tester.ts",
+        "types": "./dist/tester.d.ts",
+        "default": "./dist/tester.mjs"
+      }
+    }
+  }
+}
