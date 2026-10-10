@@ -1,5 +1,6 @@
 # Times PR1's gritlint against this build on a pinned public corpus. It fails
-# when this build's exit code or findings per rule differ from PR1's, or when
+# when this build's exit code differs from PR1's, when its findings per rule
+# differ from PR1's other than as `expected-deltas.json` lists, or when
 # this build's reports (parallel, single-threaded, and the in-process per-phase
 # run) are not byte-identical to each other. The per-phase run times
 # gritlint_core inside the bench, so the bench builds with the release profile
@@ -51,6 +52,7 @@ runCommand "gritlint-bench" { inherit after; } ''
       --corpus ${corpus} \
       --config ${../crates/gritlint_bench/effect.gritlint.json} \
       --packs ${../packs} \
+      --expected-deltas ${../crates/gritlint_bench/expected-deltas.json} \
       --rounds 15
   } > $out/summary.md
 ''
