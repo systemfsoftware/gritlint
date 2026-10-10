@@ -1,0 +1,124 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+
+jobs:
+  rust:
+    name: Rust gate
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      CARGO_NET_GIT_FETCH_WITH_CLI: "true"
+      CARGO_INCREMENTAL: "0"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - uses: cachix/install-nix-action@13d8dd58da0234aa297dedd986986ccb8e7f3e24
+      - name: Cargo cache
+        id: cargo-cache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: cargo-${{ runner.os }}-${{ hashFiles('Cargo.lock', 'rust-toolchain.toml', 'flake.lock') }}
+          restore-keys: cargo-${{ runner.os }}-
+      - name: Rust gate
+        run: nix develop --command sh scripts/tools/gate-rust.sh
+      - name: Save the cargo cache
+        if: github.ref == 'refs/heads/main' && steps.cargo-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ steps.cargo-cache.outputs.cache-primary-key }}
+
+  nix:
+    name: Nix · ${{ matrix.system }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - system: x86_64-linux
+            runner: ubuntu-latest
+          - system: aarch64-linux
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 60
+    env:
+      SYSTEM: ${{ matrix.system }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - uses: cachix/install-nix-action@13d8dd58da0234aa297dedd986986ccb8e7f3e24
+      - name: An unsupported system is refused, naming the supported ones
+        run: |
+          if nix eval --raw .#packages.x86_64-windows.gritlint 2>refused.log; then
+            echo "x86_64-windows evaluated" >&2
+            exit 1
+          fi
+          grep -q "gritlint's flake builds on x86_64-linux, aarch64-linux; x86_64-windows is not one of them" refused.log
+
+      - name: Sandboxed gritlint store path
+        id: closure
+        run: |
+          out="$(nix eval --raw ".#packages.$SYSTEM.gritlint.outPath")"
+          echo "OUT=$out" >> "$GITHUB_ENV"
+          echo "key=gritlint-closure-${out#/nix/store/}" >> "$GITHUB_OUTPUT"
+      - name: gritlint closure cache
+        id: closure-cache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9
+        with:
+          path: ${{ runner.temp }}/gritlint-closure
+          key: ${{ steps.closure.outputs.key }}
+      - name: Load the cached closure
+        if: steps.closure-cache.outputs.cache-hit == 'true'
+        run: nix copy --no-check-sigs --from "file://$RUNNER_TEMP/gritlint-closure" "$OUT"
+
+      - name: Let bwrap create user namespaces (ubuntu-24.04 AppArmor refuses them by default)
+        run: |
+          if [ -e /proc/sys/kernel/apparmor_restrict_unprivileged_userns ]; then
+            sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+          fi
+      - name: Build every flake output for this system
+        run: |
+          targets=()
+          kinds="$(nix eval --raw --impure --expr "let o = (builtins.getFlake (toString ./.)).outputs; in toString (builtins.filter (k: builtins.isAttrs o.\${k} && o.\${k} ? \"$SYSTEM\") (builtins.attrNames o))")"
+          for kind in $kinds; do
+            names="$(nix eval --raw ".#$kind.$SYSTEM" --apply 'set: toString (builtins.attrNames set)')"
+            for name in $names; do
+              targets+=(".#$kind.$SYSTEM.$name")
+            done
+          done
+          printf '%s\n' "${targets[@]}"
+          nix build --no-link --print-build-logs "${targets[@]}"
+      - name: Export the closure
+        if: steps.closure-cache.outputs.cache-hit != 'true'
+        run: nix copy --to "file://$RUNNER_TEMP/gritlint-closure?compression=zstd" "$OUT"
+      - name: Save the closure cache
+        if: steps.closure-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9
+        with:
+          path: ${{ runner.temp }}/gritlint-closure
+          key: ${{ steps.closure.outputs.key }}
+
+      - name: Sandboxed check fails on planted violations and passes once fixed
+        run: sh scripts/tools/gate-journey.sh "$OUT/bin/gritlint"
+      - name: This repository's conventions
+        run: PATH="$OUT/bin:$PATH" ./bin/gritlint check
