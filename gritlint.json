@@ -10,11 +10,10 @@
     },
     "typecheck-build-mode": {},
     "npm-provenance": {
-      "repositoryUrl": "`\"git+https://github.com/systemfsoftware/systemfsoftware.git\"`"
+      "repositoryUrl": "`\"git+https://github.com/systemfsoftware/gritlint.git\"`"
     }
   },
   "ignore": [
-    "repos/**",
     "crates/**/fixtures/**",
     "packs/**/fixtures/**"
   ]

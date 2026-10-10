@@ -21,5 +21,5 @@ if command -v nix >/dev/null 2>&1; then
 fi
 
 echo "error: no $TOOL on PATH and no nix to build it from $ROOT/flake.nix" >&2
-echo "enter the dev shell (nix develop), or install nix — see CONTRIBUTING.md" >&2
+echo "enter the dev shell (nix develop), or install nix from https://nixos.org/download" >&2
 exit 1

@@ -7,7 +7,7 @@ default-members = ["apps/gritlint"]
 version = "0.1.0"
 edition = "2024"
 license = "MIT"
-repository = "https://github.com/systemfsoftware/systemfsoftware"
+repository = "https://github.com/systemfsoftware/gritlint"
 rust-version = "1.85"
 
 [workspace.dependencies]

@@ -49,8 +49,6 @@ rustPlatform.buildRustPackage {
   pname = "gritlint";
   inherit version;
 
-  # Only what cargo compiles, out of the whole monorepo: a TypeScript, flake or
-  # workflow edit must not move the src hash and rebuild the Rust output.
   src = lib.fileset.toSource {
     root = ../.;
     fileset = lib.fileset.unions [
@@ -84,7 +82,7 @@ rustPlatform.buildRustPackage {
 
   meta = {
     description = "Run GritQL rule packs over the config files of a repository";
-    homepage = "https://github.com/systemfsoftware/systemfsoftware/tree/main/crates";
+    homepage = "https://github.com/systemfsoftware/gritlint";
     license = lib.licenses.mit;
     mainProgram = "gritlint";
     platforms = lib.platforms.unix;
