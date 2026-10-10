@@ -35,12 +35,13 @@ parser is regenerated.
 When `Cargo.lock` moves to another GritQL rev, copy that rev's
 `resources/language-metavariables/tree-sitter-typescript` `Cargo.toml`, the
 files its `include` lists, and `LICENSE` over this directory, then
-re-apply the `common/scanner.h` change. The check in
-`docs/solutions/tooling-decisions/gritlint-conventions-platform.md` lists any
-file left stale.
+re-apply the `common/scanner.h` change. The flake check `gritlint-vendor-sync`
+(`nix/gritlint-checks.nix`) fails naming every file left stale.
 
 If the new rev already inserts the semicolon before `<` in a type, remove the
 copy: this directory, the root `Cargo.toml`'s `[patch]` entry and its workspace
-`exclude`, and in `nix/gritlint.nix` the `../vendor` source entry, `grammar`
-and `extraDummyScript`. Then run `cargo update -p tree-sitter-typescript` and
-rebuild the vendor staging derivation for the new `cargoDeps.hash`.
+`exclude`, in `nix/gritlint.nix` the `../vendor` source entry, `grammar` and
+`extraDummyScript`, the `gritlint-vendor-sync` check, and its bullet in
+`docs/solutions/tooling-decisions/gritlint-conventions-platform.md`. Then run
+`cargo update -p tree-sitter-typescript` and rebuild the vendor staging
+derivation for the new `cargoDeps.hash`.

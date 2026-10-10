@@ -90,17 +90,9 @@ per-platform npm packages behind a launcher with no postinstall step.
   duplicate crate names, and a vendoring step that picks by name alone built different sources on different machines.
 - `vendor/tree-sitter-typescript` patches the engine's TypeScript grammar with one scanner change (its README). A re-pin
   copies the new rev's grammar there and re-applies the change. A stale copy still builds and silently parses with the
-  old grammar. Check: review. The reviewer runs this from the repo root and requires exit 0. It exits 1 and prints
-  each file that differs, or exists on one side only:
-
-  ```sh
-  E=$(nix eval --raw .#packages.x86_64-linux.gritlint-unwrapped.engineSource)/resources/language-metavariables/tree-sitter-typescript
-  V=vendor/tree-sitter-typescript
-  { (cd "$E" && find Cargo.toml LICENSE bindings/rust common queries typescript/grammar.js typescript/src tsx/grammar.js tsx/src -type f); git ls-files "$V" | sed "s|^$V/||"; } |
-    sort -u | grep -vxE 'README\.md|common/scanner\.h' |
-    while read -r f; do cmp -s "$E/$f" "$V/$f" || echo "stale: $V/$f"; done | grep . && exit 1 || exit 0
-  ```
-
+  old grammar. Gate: the flake check `gritlint-vendor-sync` (`nix/gritlint-checks.nix`), built by every CI job, compares
+  every file the vendored crate's `include` lists, plus `Cargo.toml` and `LICENSE`, with the pinned rev's copy and fails
+  naming each file that differs or exists on one side only; `README.md` and `common/scanner.h` are the two exceptions.
   wrong: the `rev` moves and `vendor/` keeps the old `parser.c`. right: the copied files match the new rev.
 - After any `Cargo.lock` edit, rebuild the vendor staging derivation with `nix build --rebuild` to get the new
   `cargoDeps.hash`. A plain build reuses the fixed-output path already in the store and reports no mismatch: patching
