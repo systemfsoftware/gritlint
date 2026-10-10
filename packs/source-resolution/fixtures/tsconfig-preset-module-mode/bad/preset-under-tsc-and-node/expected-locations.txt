@@ -1,0 +1,2 @@
+source-resolution/tsconfig-preset-module-mode packages/toolchain/tsconfig/node.json:4:5-4:27
+source-resolution/tsconfig-preset-module-mode packages/toolchain/tsconfig/tsc/lib.json:4:5-4:27

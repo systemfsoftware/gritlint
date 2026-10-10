@@ -23,12 +23,12 @@ reaches the referenced projects and reports their errors.
 language json
 multifile {
   bubble($dir) file($name, $body) where {
-    $name <: r"(.*/)tsconfig\.json"($dir),
+    $name <: r"(.*/|)tsconfig\.json"($dir),
     $program <: contains `"files": []`,
     $program <: contains `"references": [$reference, $...]`
   },
   bubble($dir) file($name, $body) where {
-    $name <: r"(.*/)package\.json"($manifest_dir),
+    $name <: r"(.*/|)package\.json"($manifest_dir),
     $manifest_dir <: $dir,
     $program <: or {
       not contains `"typecheck": $_`,
