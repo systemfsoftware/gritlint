@@ -75,8 +75,8 @@ mode() {
 }
 
 shards() {
-  local mode=$1 total=$2 count=$3 n
-  if [ "$mode" = full ] && [ "$total" -eq 0 ]; then
+  local total=$1 count=$2 n
+  if [ "$total" -eq 0 ]; then
     die "examine_globs in .cargo/mutants.toml selects no mutant"
   fi
   n=$(((count + SHARD_CAPACITY - 1) / SHARD_CAPACITY))

@@ -106,7 +106,7 @@ jobs:
           cp plan/*.txt mutants.out/
           $CARGO_MUTANTS --workspace --list --iterate $([ -f plan/mutants.diff ] && echo --in-diff plan/mutants.diff) > plan/mutants.txt
           count=$(wc -l < plan/mutants.txt)
-          shards=$($PLAN shards "$MODE" "$total" "$count")
+          shards=$($PLAN shards "$total" "$count")
           {
             echo "artifact=mutants-plan-$GITHUB_RUN_ATTEMPT"
             echo "$shards"
