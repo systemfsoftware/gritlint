@@ -1,7 +1,7 @@
 ---
 reasonCode: tsconfig-missing-condition
 nextAction: List the source condition in this project's `customConditions`, or extend a preset that carries it.
-locate: `"customConditions": $list` where { $list <: or { `[]`, `[$cond, $...]` where { $cond <: not condition() } } }
+locate: `"customConditions": $list` where { $list <: not contains condition() }
 ---
 
 # tsconfig project: name the source condition, or extend a config that does
@@ -27,13 +27,13 @@ options — so the sibling must name the condition.
 language json
 multifile {
   file($name, $body) where {
-    $name <: r".*/tsconfig[^/]*\.json",
+    $name <: r"(?:.*/)?tsconfig[^/]*\.json",
     $program <: contains `"include": [$first, $...]`,
     $program <: not contains `"extends": $extends` where {
       $extends <: or { presets(), contains presets(), includes "./" }
     },
-    $program <: not contains `"customConditions": [$cond, $...]` where {
-      $cond <: condition()
+    $program <: not contains `"customConditions": $list` where {
+      $list <: contains condition()
     }
   }
 }

@@ -44,6 +44,8 @@ The bad case `root-reference-only` keeps its files at the case root and asserts 
 
 Five `source-resolution` rules carried the same capture: `api-extractor-tsconfig`, `export-map-order`, `internals-export-map`, `publish-config-exports` and `tsconfig-paths`. Each took the same change, with a root-level bad case that failed before it.
 
+Single-file rules had the same defect without a capture. `tsconfig-condition`, `tsconfig-preset-module-mode`, `tsdown-exports`, `vitest-conditions` and `shared-vitest-config` named their files with `r".*/vitest\.config\.(?:ts|mts)"` and similar patterns, which also require a slash. They now use `r"(?:.*/)?..."`, and each has a root-level bad case. Where a rule also checks a parameter (`presetFiles`, `sharedVitestConfigFile`), the root case sets that parameter in the same form, so the parameter alone decides which files are checked. The group must be non-capturing: a pattern that binds no variable and has a capture group fails every file with `regex pattern matched 1 variables, but expected 0`.
+
 ## Why this works
 
 A root `tsconfig.json` binds `$dir` to `""`. The join holds only if the `package.json` clause can also bind `""`, so both captures must allow the empty alternative. Widening only one side still fails at the root.
@@ -51,13 +53,15 @@ A root `tsconfig.json` binds `$dir` to `""`. The join holds only if the `package
 ## Invariants
 
 - A directory capture used in a multifile join matches the empty directory: `(.*/|)`, never `(.*/)`.
-- Every such join has at least one case whose files sit at the case root, so the empty-directory binding is exercised.
-- Every such join also has a case that pairs a root file with a nested one. The empty capture must not join them: `""` is a directory like any other, not a prefix of every directory.
+- A file-name pattern that binds nothing matches the repository root: `(?:.*/)?name`, never `.*/name`.
+- Every such rule has at least one case whose files sit at the case root, so the root path is exercised.
+- Every join also has a case that pairs a root file with a nested one. The empty capture must not join them: `""` is a directory like any other, not a prefix of every directory.
+- GritQL regexes match the whole path, so dropping the slash does not let `mytsconfig.json` match `tsconfig.json`.
 
 ## Prevention
 
-Find rules that use the slash-only form (none remain):
+Find rules whose path pattern still requires a slash (none remain):
 
 ```sh
-git grep -n -E 'r"\(\.\*/\)' -- 'packs/*/rules'
+git grep -n -E 'r"(\(\.\*/\)|\.\*/[a-z])' -- 'packs/*/rules/*.md'
 ```
