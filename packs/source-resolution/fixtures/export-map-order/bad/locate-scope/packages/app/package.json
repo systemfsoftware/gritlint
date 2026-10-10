@@ -1,0 +1,17 @@
+{
+  "name": "@acme/app",
+  "imports": {
+    "#tester": {
+      "types": "./dist/tester.d.ts",
+      "@systemfsoftware/source": "./src/tester.ts",
+      "default": "./dist/tester.mjs"
+    }
+  },
+  "exports": {
+    "./tester": {
+      "types": "./dist/tester.d.ts",
+      "@systemfsoftware/source": "./src/tester.ts",
+      "default": "./dist/tester.mjs"
+    }
+  }
+}
