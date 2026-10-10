@@ -1,7 +1,7 @@
 ---
 reasonCode: preset-module-mode
 nextAction: Set the preset's `module` to `NodeNext`, `Node16` or `preserve`, or its `moduleResolution` to `Bundler`, `Node16` or `NodeNext`, and name the source condition in `customConditions` or leave the key out.
-locate: or { `"customConditions": $list` where { $list <: or { `[]`, `[$cond, $...]` where { $cond <: not condition() } } }, `"module": $mode` where { $mode <: not r"\"(?:[Nn]odeNext|[Nn]ode16|[Pp]reserve)\"", $program <: not contains `"moduleResolution": $resolution` where { $resolution <: r"\"(?:[Bb]undler|[Nn]ode16|[Nn]odeNext)\"" } } }
+locate: or { `"customConditions": $list` where { $list <: not contains condition() }, `"module": $mode` where { $mode <: not r"\"(?i:nodenext|node16|preserve)\"", $program <: not contains `"moduleResolution": $resolution` where { $resolution <: r"\"(?i:bundler|node16|nodenext)\"" } } }
 ---
 
 # tsconfig preset: a module mode that honours conditions, and no cleared condition
@@ -28,20 +28,19 @@ stands.
 language json
 multifile {
   file($name, $body) where {
-    $name <: r".*/tsconfig/.*\.json",
+    $name <: r"(?:.*/)?tsconfig/.*\.json",
     $name <: presetFiles(),
     or {
       $program <: and {
         not contains `"module": $mode` where {
-          $mode <: r"\"(?:[Nn]odeNext|[Nn]ode16|[Pp]reserve)\""
+          $mode <: r"\"(?i:nodenext|node16|preserve)\""
         },
         not contains `"moduleResolution": $resolution` where {
-          $resolution <: r"\"(?:[Bb]undler|[Nn]ode16|[Nn]odeNext)\""
+          $resolution <: r"\"(?i:bundler|node16|nodenext)\""
         }
       },
-      $program <: contains `"customConditions": []`,
-      $program <: contains `"customConditions": [$cond, $...]` where {
-        $cond <: not condition()
+      $program <: contains `"customConditions": $list` where {
+        $list <: not contains condition()
       }
     }
   }

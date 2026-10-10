@@ -24,11 +24,11 @@ sets `compilerOptions.customConditions` to `[]`, and set
 language json
 multifile {
   bubble($dir) file($name, $body) where {
-    $name <: r"(.*/)api-extractor\.json"($dir),
+    $name <: r"(.*/|)api-extractor\.json"($dir),
     $program <: contains `"tsconfigFilePath": $_`
   },
   bubble($dir) file($name, $body) where {
-    $name <: r"(.*/)tsconfig\.api\.json"($api_dir),
+    $name <: r"(.*/|)tsconfig\.api\.json"($api_dir),
     $api_dir <: $dir,
     $program <: not contains `"customConditions": []`
   }

@@ -1,0 +1,10 @@
+{
+  "name": "@acme/app",
+  "exports": {
+    "./tester": {
+      "node": "./dist/tester.mjs",
+      "@systemfsoftware/source": "./src/tester.ts",
+      "default": "./dist/tester.mjs"
+    }
+  }
+}

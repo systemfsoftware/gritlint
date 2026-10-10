@@ -1,0 +1,1 @@
+source-resolution/publish-config-exports packages/app/package.json
