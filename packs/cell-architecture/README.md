@@ -66,13 +66,15 @@ The pack takes no parameters.
   names and imports, not what a member builds: a static layer that provides a
   Layer imported from a relative module, or a static method that returns a
   Layer, passes when the module imports no driver specifier.
-- **Unparseable modules stop the scan.** The pinned TypeScript grammar reads
-  two generic call signatures separated only by a newline (in a type literal or
-  an interface, the shape `dual` overloads take) as one type expression and
-  fails to parse the module. gritlint reports that as an error rather than
-  skipping the file, so such a `*.service.ts` fails the check. Separators fix
-  the parse but a formatter set to omit semicolons strips them; an intersection
-  of function types (`& (<A>(a: A) => A) & (...)`) parses and survives it.
+- **Unparseable modules stop the scan.** gritlint never skips a file it cannot
+  parse: it refuses the run with exit code 2 and a stderr line
+  `ERROR gritlint: <file>:<line>:<column>: target-does-not-parse: …`. Its TypeScript grammar
+  reads the shape `dual` overloads take, generic call signatures separated only
+  by a newline in a type literal or an interface (the good cases
+  `dual-overload-type-literal` and `generic-call-signature-in-interface`).
+  It does not yet read variance annotations (`<in I, out A>`),
+  `export type * from`, an export specifier named `type`, or `import('…')`
+  types, so a `*.service.ts` holding one of those fails the check.
 - **One finding per directory, at the first driver import or Layer.** The rule
   is multifile so that only `*.service.ts` modules are parsed; a single-file
   rule parses every module of the language, and any unparseable one would stop
