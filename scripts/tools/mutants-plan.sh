@@ -2,7 +2,7 @@
 set -euo pipefail
 export LC_ALL=C
 
-readonly SHARD_CAPACITY=13
+readonly SHARD_CAPACITY=9
 readonly FULL_RUN_TRIGGERS=(.cargo/mutants.toml .github/workflows/mutants.yml)
 readonly OUTCOMES=(caught unviable missed timeout)
 readonly JQ_EXPECT_ARRAY='def expect_array($key; $what):

@@ -108,12 +108,12 @@ expect_refusal "mode: a dispatched base that is no commit is refused" "is not a 
 expect_refusal "mode: an unknown dispatch mode is refused" "unknown mode 'incremental'" \
   mode workflow_dispatch incremental "" "$A" "$H_rs"
 
-expect "shards: one mutant, one shard" "$(lines capacity=13 n=1 'shards=[0]')" "${plan[@]}" shards 10 1
-expect "shards: a full shard is still one" "$(lines capacity=13 n=1 'shards=[0]')" "${plan[@]}" shards 10 13
-expect "shards: one past a shard is two" "$(lines capacity=13 n=2 'shards=[0,1]')" "${plan[@]}" shards 14 14
-expect "shards: the full list at fe886c5" "$(lines capacity=13 n=37 "shards=[$(seq -s, 0 36)]")" \
+expect "shards: one mutant, one shard" "$(lines capacity=9 n=1 'shards=[0]')" "${plan[@]}" shards 10 1
+expect "shards: a full shard is still one" "$(lines capacity=9 n=1 'shards=[0]')" "${plan[@]}" shards 10 9
+expect "shards: one past a shard is two" "$(lines capacity=9 n=2 'shards=[0,1]')" "${plan[@]}" shards 10 10
+expect "shards: the full list at fe886c5" "$(lines capacity=9 n=53 "shards=[$(seq -s, 0 52)]")" \
   "${plan[@]}" shards 475 475
-expect "shards: nothing left to test starts no shard" "$(lines capacity=13 n=0 'shards=[]')" \
+expect "shards: nothing left to test starts no shard" "$(lines capacity=9 n=0 'shards=[]')" \
   "${plan[@]}" shards 475 0
 expect_refusal "shards: a listing with no mutant fails, in-diff or full" "selects no mutant" "${plan[@]}" shards 0 0
 

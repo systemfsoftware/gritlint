@@ -38,7 +38,7 @@ Consequences:
 
 - Seeding `mutants.out/` before the run (the shard job copies the plan artifact's lists there) is how resume works.
 - After a run, the four outcome lists hold only what that run tested, and the seed survives only as `previously_caught.txt`. The `summary` subcommand reads `previously_caught.txt` as "Carried", so nothing is double-counted.
-- The `--list --iterate [--in-diff]` count is the exact set the shards split: $\bigcup_{k<n} \text{shard}(k/n) = \text{list}$, so $n = \lceil \text{count} / 13 \rceil$ leaves no mutant unassigned.
+- The `--list --iterate [--in-diff]` count is the exact set the shards split: $\bigcup_{k<n} \text{shard}(k/n) = \text{list}$, so $n = \lceil \text{count} / \text{SHARD\_CAPACITY} \rceil$ leaves no mutant unassigned.
 - Exception: if cargo-mutants exits before `OutputDir::new` (for example on an argument error), the seeded lists stay in place unchanged. That shard step is red, with the error named.
 
 `merge` folds `missed` and `timeout` into `previously_caught.txt` as well, so a warm or resumed run at the same commit skips them. A missed mutant is deterministic at a fixed commit. A timeout caused by runner load is not retried at that commit.
