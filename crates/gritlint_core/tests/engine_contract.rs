@@ -368,6 +368,48 @@ fn a_typescript_pattern_finds_ssr_conditions_in_ts_and_js() {
 }
 
 #[test]
+fn a_line_leading_angle_bracket_opens_a_member_in_a_type_and_compares_in_an_expression() {
+    let overloads = run(
+        "call_signature()",
+        tsx(),
+        &[],
+        &[],
+        &[(
+            "dual.ts",
+            "export type Dual = {\n  (limit: number): <A>(a: A) => A\n  <A>(a: A, limit: number): A\n}\n",
+        )],
+    );
+    assert!(overloads.diagnostics.is_empty(), "{overloads:#?}");
+    assert_eq!(
+        overloads.matches[0]
+            .ranges
+            .iter()
+            .map(|range| range.start_line)
+            .collect::<Vec<_>>(),
+        [2, 3],
+        "the generic signature on its own line is the type's second member: {overloads:#?}"
+    );
+
+    let comparison = run(
+        "`$left < $right`",
+        tsx(),
+        &[],
+        &[],
+        &[("lower.ts", "export const lower = left\n  < right\n")],
+    );
+    assert!(comparison.diagnostics.is_empty(), "{comparison:#?}");
+    assert_eq!(
+        comparison.matches[0]
+            .ranges
+            .iter()
+            .map(|range| (range.start_line, range.end_line))
+            .collect::<Vec<_>>(),
+        [(1, 2)],
+        "a `<` that starts a line still continues the expression above it: {comparison:#?}"
+    );
+}
+
+#[test]
 fn a_bound_parameter_changes_what_matches() {
     let browser = run(
         BOUND_CONDITION_PATTERN,
