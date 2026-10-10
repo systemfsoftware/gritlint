@@ -4,7 +4,7 @@ use crate::domain::{
     ParsedRule, Range, RelPath, RuleCount, RuleKind, RuleStep, ScanPlan, SelectedFile,
     SelectedFiles, Sources, Verdict,
 };
-use crate::engine::{EngineMatch, EngineOutcome, InputFile, ParseDiagnostic};
+use crate::engine::{DiagnosticKind, EngineDiagnostic, EngineMatch, EngineOutcome, InputFile};
 use crate::error::GritlintError;
 use rayon::prelude::*;
 use regex::Regex;
@@ -22,7 +22,7 @@ struct Unlocated<'a> {
 struct TaskRun<'a> {
     findings: Vec<Finding>,
     unlocated: Option<Unlocated<'a>>,
-    diagnostic: Option<ParseDiagnostic>,
+    diagnostic: Option<EngineDiagnostic>,
 }
 
 pub struct Matched<'a> {
@@ -123,16 +123,15 @@ pub fn match_rules<'a>(
         |(mut findings, mut unlocated, diagnostic), run| {
             findings.extend(run.findings);
             unlocated.extend(run.unlocated);
-            (findings, unlocated, diagnostic.or(run.diagnostic))
+            let diagnostic = [diagnostic, run.diagnostic]
+                .into_iter()
+                .flatten()
+                .min_by_key(EngineDiagnostic::kind);
+            (findings, unlocated, diagnostic)
         },
     );
     match diagnostic {
-        Some(diagnostic) => Err(GritlintError::TargetParse {
-            file: diagnostic.path,
-            line: diagnostic.line,
-            column: diagnostic.column,
-            message: diagnostic.message,
-        }),
+        Some(diagnostic) => Err(refusal(diagnostic)),
         None => Ok(Matched {
             findings,
             unlocated,
@@ -362,16 +361,36 @@ fn run_task<'a>(task: &Task<'a>, sources: &Sources) -> Result<TaskRun<'a>, Gritl
     }
 }
 
-fn first_diagnostic(outcome: &EngineOutcome, files: &[SelectedFile]) -> Option<ParseDiagnostic> {
+fn first_diagnostic(outcome: &EngineOutcome, files: &[SelectedFile]) -> Option<EngineDiagnostic> {
     outcome
         .diagnostics
         .iter()
-        .find(|diagnostic| {
+        .filter(|diagnostic| {
             files
                 .iter()
                 .any(|file| file.path().as_str() == diagnostic.path)
         })
+        .min_by_key(|diagnostic| diagnostic.kind())
         .cloned()
+}
+
+fn refusal(diagnostic: EngineDiagnostic) -> GritlintError {
+    match diagnostic.kind() {
+        DiagnosticKind::Parse => GritlintError::TargetParse {
+            file: diagnostic.path,
+            line: diagnostic.line,
+            column: diagnostic.column,
+            message: diagnostic.message,
+        },
+        DiagnosticKind::TooLarge => GritlintError::TargetTooLarge {
+            file: diagnostic.path,
+            message: diagnostic.message,
+        },
+        DiagnosticKind::Other => GritlintError::TargetNotScanned {
+            file: diagnostic.path,
+            message: diagnostic.message,
+        },
+    }
 }
 
 fn single_findings(
