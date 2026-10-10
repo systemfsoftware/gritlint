@@ -1,0 +1,1 @@
+source-resolution/shared-vitest-config vitest-config/lib/base.js

@@ -1,0 +1,1 @@
+source-resolution/tsconfig-preset-module-mode tsconfig/bundler/dom.json

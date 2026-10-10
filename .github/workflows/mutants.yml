@@ -1,0 +1,81 @@
+name: Mutants
+
+on:
+  push:
+    branches: [main]
+
+concurrency:
+  group: mutants-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  mutants:
+    name: cargo mutants · x86_64-linux
+    runs-on: ubuntu-latest
+    timeout-minutes: 340
+    env:
+      CARGO_MUTANTS: nix develop --command nix shell --inputs-from . nixpkgs#cargo-mutants --command cargo mutants
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - uses: cachix/install-nix-action@13d8dd58da0234aa297dedd986986ccb8e7f3e24
+      - name: Offline cargo home from the vendor tree
+        run: |
+          echo "CARGO_HOME=$RUNNER_TEMP/cargo-home" >> "$GITHUB_ENV"
+          mkdir -p "$RUNNER_TEMP/cargo-home"
+          cp "$(nix build --no-link --print-out-paths .#packages.x86_64-linux.gritlint-unwrapped.vendor)/config.toml" "$RUNNER_TEMP/cargo-home/"
+          $CARGO_MUTANTS --version
+
+      - name: Mutants listed
+        run: |
+          count=$($CARGO_MUTANTS --workspace --list | wc -l)
+          echo "**$count mutants listed**" >> "$GITHUB_STEP_SUMMARY"
+          if [ "$count" -eq 0 ]; then
+            echo "::error file=.cargo/mutants.toml::examine_globs selects no mutant"
+            exit 1
+          fi
+      - name: cargo mutants
+        timeout-minutes: 310
+        run: |
+          status=0
+          $CARGO_MUTANTS --workspace || status=$?
+          echo "cargo mutants exited $status"
+          # https://mutants.rs/exit-codes.html: 0 all caught, 2 missed, 3 timeouts; any other code is an error.
+          case "$status" in
+            0 | 2 | 3) ;;
+            *) exit "$status" ;;
+          esac
+
+      - name: Outcomes and missed mutants
+        if: always()
+        run: |
+          {
+            echo
+            echo "| Outcome | Mutants |"
+            echo "| --- | --- |"
+            for outcome in caught missed timeout unviable; do
+              echo "| $outcome | $(cat "mutants.out/$outcome.txt" 2>/dev/null | wc -l) |"
+            done
+            if [ -s mutants.out/missed.txt ]; then
+              echo
+              echo "### Missed"
+              echo
+              echo '```text'
+              cat mutants.out/missed.txt
+              echo '```'
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+      - name: Upload mutants.out
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: mutants.out
+          path: mutants.out
+          if-no-files-found: ignore

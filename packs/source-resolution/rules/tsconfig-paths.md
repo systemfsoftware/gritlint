@@ -1,14 +1,14 @@
 ---
 reasonCode: tsconfig-paths-self-name
-nextAction: Delete the `paths` entry that maps the package's own name and let the export map's condition resolve it.
+nextAction: Delete the `paths` entry that maps the package's own name or a subpath of it, and let the export map's condition resolve it.
 locate: `"paths": $_`
 ---
 
 # tsconfig paths: never map the package's own published name
 
-No tsconfig may map the package's own published name through
-`compilerOptions.paths`. A self-name mapping is a shortcut that bypasses the
-export map.
+No tsconfig may map the package's own published name, or any subpath of it
+(`<name>/*`, `<name>/<subpath>`), through `compilerOptions.paths`. A self-name
+mapping is a shortcut that bypasses the export map.
 
 `paths` is honoured only by the tools that read that tsconfig, so the mapping
 resolves source in some tools and `dist/` in others, and it silently stays
@@ -24,16 +24,16 @@ and letting the export map's condition do the work.
 language json
 multifile {
   bubble($dir, $package) file($name, $body) where {
-    $name <: r"(.*/)package\.json"($dir),
+    $name <: r"(.*/|)package\.json"($dir),
     $program <: contains `"name": $declared`,
     $declared <: r"\"(.*)\""($package)
   },
   bubble($dir, $key, $package) file($name, $body) where {
-    $name <: r"(.*/)tsconfig[^/]*\.json"($config_dir),
+    $name <: r"(.*/|)tsconfig[^/]*\.json"($config_dir),
     $config_dir <: $dir,
     $program <: contains `"paths": $paths`,
     $paths <: contains `$mapped: $target`,
-    $mapped <: r"\"(.*)\""($key),
+    $mapped <: r"\"((?:@[^/]+/)?[^/]+)(?:/.*)?\""($key),
     $key <: $package
   }
 }

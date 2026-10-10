@@ -1,0 +1,1 @@
+source-resolution/vitest-conditions packages/app/vitest.config.mts

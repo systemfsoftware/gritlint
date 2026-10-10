@@ -1,4 +1,5 @@
 mod breakdown;
+mod deltas;
 
 use gritlint_core::domain::{EmbeddedFile, RelPath};
 use gritlint_core::shell;
@@ -15,6 +16,7 @@ struct Args {
     corpus: String,
     config: String,
     packs: String,
+    expected_deltas: String,
     rounds: usize,
 }
 
@@ -76,8 +78,9 @@ fn main() -> ExitCode {
 }
 
 fn parse(mut args: impl Iterator<Item = String>) -> Result<Args, String> {
-    let (mut baseline, mut candidate, mut corpus, mut config, mut packs, mut rounds) =
-        (None, None, None, None, None, None);
+    let (mut baseline, mut candidate, mut corpus, mut config, mut packs) =
+        (None, None, None, None, None);
+    let (mut expected_deltas, mut rounds) = (None, None);
     while let Some(flag) = args.next() {
         let value = args
             .next()
@@ -88,6 +91,7 @@ fn parse(mut args: impl Iterator<Item = String>) -> Result<Args, String> {
             "--corpus" => corpus = Some(value),
             "--config" => config = Some(value),
             "--packs" => packs = Some(value),
+            "--expected-deltas" => expected_deltas = Some(value),
             "--rounds" => rounds = Some(value),
             _ => return Err(format!("unknown argument `{flag}`")),
         }
@@ -104,6 +108,7 @@ fn parse(mut args: impl Iterator<Item = String>) -> Result<Args, String> {
         corpus: corpus.ok_or("missing `--corpus`")?,
         config: config.ok_or("missing `--config`")?,
         packs: packs.ok_or("missing `--packs`")?,
+        expected_deltas: expected_deltas.ok_or("missing `--expected-deltas`")?,
         rounds,
     })
 }
@@ -117,13 +122,19 @@ fn bench(args: &Args) -> Result<String, String> {
         ));
     }
     let (candidate, _) = run(args, Arm::Candidate)?;
-    let (expected, found) = (tally(&baseline)?, tally(&candidate)?);
-    if candidate.code != baseline.code || found != expected {
+    if candidate.code != baseline.code {
         return Err(format!(
-            "the candidate exited {:?} with findings per rule {found:?}; the baseline exited {:?} with {expected:?}",
+            "the candidate exited {:?}; the baseline exited {:?}",
             candidate.code, baseline.code
         ));
     }
+    let packs = packs(Path::new(&args.packs))?;
+    let deltas = shell::read_text(Path::new(&args.expected_deltas))
+        .map_err(|error| error.to_string())
+        .and_then(|text| deltas::parse(&text))?;
+    let pack_files: Vec<&str> = packs.iter().map(EmbeddedFile::path).collect();
+    deltas::check_cases(&deltas, &pack_files)?;
+    deltas::compare(&tally(&baseline)?, &tally(&candidate)?, &deltas)?;
     let mut walls = Walls::default();
     for round in 0..args.rounds {
         let mut order = Arm::ALL;
@@ -150,8 +161,8 @@ fn bench(args: &Args) -> Result<String, String> {
             walls.of(arm).push(wall);
         }
     }
-    let phases = phases(args, &candidate)?;
-    Ok(summary(args.rounds, &mut walls) + &phases)
+    let phases = phases(args, &packs, &candidate)?;
+    Ok(summary(args.rounds, &mut walls) + &delta_table(&deltas) + &phases)
 }
 
 /// Findings per rule id from `--format json`: PR1 names the rule `rule`, the
@@ -177,8 +188,7 @@ fn tally(report: &Report) -> Result<BTreeMap<String, usize>, String> {
         })
 }
 
-fn phases(args: &Args, reference: &Report) -> Result<String, String> {
-    let packs = packs(Path::new(&args.packs))?;
+fn phases(args: &Args, packs: &[EmbeddedFile], reference: &Report) -> Result<String, String> {
     let pool = rayon::ThreadPoolBuilder::new()
         .num_threads(1)
         .build()
@@ -186,7 +196,7 @@ fn phases(args: &Args, reference: &Report) -> Result<String, String> {
     let runs = (0..args.rounds)
         .map(|round| {
             let run = pool.install(|| {
-                breakdown::run(Path::new(&args.config), Path::new(&args.corpus), &packs)
+                breakdown::run(Path::new(&args.config), Path::new(&args.corpus), packs)
             })?;
             if Some(i32::from(run.code)) == reference.code && run.stdout == reference.stdout {
                 Ok(run)
@@ -269,10 +279,24 @@ fn summary(rounds: usize, walls: &mut Walls) -> String {
     }
     let _ = writeln!(
         out,
-        "\nSpeedup {:.1}x (single-threaded {:.1}x) over {rounds} rounds on {cores} cores. The candidate's reports are byte-identical to each other, and its exit code and findings per rule equal the baseline's.",
+        "\nSpeedup {:.1}x (single-threaded {:.1}x) over {rounds} rounds on {cores} cores. The candidate's reports are byte-identical to each other, and its exit code equals the baseline's. Its findings per rule equal the baseline's, except the expected deltas below.",
         baseline.as_secs_f64() / candidate.as_secs_f64(),
         baseline.as_secs_f64() / serial.as_secs_f64(),
     );
+    out
+}
+
+fn delta_table(deltas: &BTreeMap<String, deltas::Delta>) -> String {
+    let mut out = String::from(
+        "\n| Rule | Baseline | Candidate | Reason | Case |\n| --- | --- | --- | --- | --- |\n",
+    );
+    for (rule, delta) in deltas {
+        let _ = writeln!(
+            out,
+            "| `{rule}` | {} | {} | {} | `{}` |",
+            delta.baseline, delta.expected, delta.reason, delta.case
+        );
+    }
     out
 }
 
