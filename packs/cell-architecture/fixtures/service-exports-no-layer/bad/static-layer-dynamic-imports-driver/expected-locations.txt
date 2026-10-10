@@ -1,0 +1,1 @@
+cell-architecture/service-exports-no-layer packages/app/src/workspace.service.ts:11:26-11:52
