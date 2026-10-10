@@ -72,7 +72,7 @@ let
       root = ../.;
       fileset = ../Cargo.lock;
     };
-    hash = "sha256-SQHkUhZgT4/DJX3iOtyzuwWnqybm430xAxMrIbCr+B4=";
+    hash = "sha256-yEcgIYXYPSmDuBN2ySjykauSPBa8FxhEBihBmPckC9g=";
   };
 
   # The registry crates are linked as they are; only the git crates need the
@@ -116,6 +116,7 @@ craneLib.buildPackage (
     doCheck = false;
 
     passthru = {
+      releaseArgs = common;
       inherit
         engineRev
         engineSource

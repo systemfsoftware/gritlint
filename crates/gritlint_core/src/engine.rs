@@ -22,14 +22,16 @@
 //! parameter the caller did not bind does not compile, rather than matching
 //! nothing.
 
-use grit_util::Range as EngineRange;
+use grit_util::{AnalysisLogs, FileOrigin, Range as EngineRange};
 use marzano_core::api::MatchResult;
 use marzano_core::pattern_compiler::compiler::src_to_problem_libs;
 use marzano_core::problem::Problem;
+use marzano_language::language::MarzanoLanguage as _;
 use marzano_util::rich_path::RichFile;
 use marzano_util::runtime::ExecutionContext;
 use std::collections::BTreeMap;
 use std::fmt;
+use std::path::Path;
 
 pub use marzano_language::target_language::TargetLanguage;
 
@@ -187,6 +189,20 @@ impl Compiled {
 
         outcome
     }
+}
+
+#[must_use]
+pub fn parse(language: TargetLanguage, file: &InputFile) -> bool {
+    let mut logs = AnalysisLogs::from(Vec::new());
+    language
+        .get_parser()
+        .parse_file(
+            &file.contents,
+            Some(Path::new(&file.path)),
+            &mut logs,
+            FileOrigin::Fresh,
+        )
+        .is_some()
 }
 
 fn build_library(request: &CompileRequest) -> Result<BTreeMap<String, String>, EngineError> {

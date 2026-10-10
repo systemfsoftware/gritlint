@@ -1,4 +1,4 @@
-use crate::engine::TargetLanguage;
+use crate::engine::{InputFile, TargetLanguage};
 use crate::error::GritlintError;
 use globset::GlobSet;
 use grit_util::Language as _;
@@ -659,6 +659,35 @@ impl ScanPlan {
     #[must_use]
     pub fn rule_count(&self) -> usize {
         self.steps.len()
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct Execution {
+    language: TargetLanguage,
+    files: Vec<(InputFile, bool)>,
+}
+
+impl Execution {
+    #[must_use]
+    pub(crate) fn new(language: TargetLanguage, files: Vec<(InputFile, bool)>) -> Self {
+        Self { language, files }
+    }
+
+    #[must_use]
+    pub fn language(&self) -> TargetLanguage {
+        self.language
+    }
+
+    pub fn files(&self) -> impl Iterator<Item = &InputFile> {
+        self.files.iter().map(|(file, _)| file)
+    }
+
+    pub fn read(&self) -> impl Iterator<Item = &InputFile> {
+        self.files
+            .iter()
+            .filter(|(_, read)| *read)
+            .map(|(file, _)| file)
     }
 }
 

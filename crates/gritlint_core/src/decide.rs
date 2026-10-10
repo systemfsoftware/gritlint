@@ -1,7 +1,8 @@
 use crate::domain::{
-    CaseKind, CaseResult, CompiledRule, DirectoryBatch, Evaluation, Finding, FixtureCase,
-    FixtureLayout, FixtureOutcome, FixtureRule, NonEmpty, Outcome, ParsedRule, RelPath, RuleCount,
-    RuleKind, RuleStep, ScanPlan, SelectedFile, SelectedFiles, Sources, Verdict,
+    CaseKind, CaseResult, CompiledRule, DirectoryBatch, Evaluation, Execution, Finding,
+    FixtureCase, FixtureLayout, FixtureOutcome, FixtureRule, NonEmpty, Outcome, ParsedRule,
+    RelPath, RuleCount, RuleKind, RuleStep, ScanPlan, SelectedFile, SelectedFiles, Sources,
+    Verdict,
 };
 use crate::engine::{EngineMatch, EngineOutcome, InputFile};
 use crate::error::GritlintError;
@@ -102,6 +103,24 @@ pub fn scan(plan: &ScanPlan, sources: &Sources) -> Result<Outcome, GritlintError
         Some((file, message)) => Err(GritlintError::TargetParse { file, message }),
         None => Ok(canonicalize(findings, counts, plan.files_selected)),
     }
+}
+
+pub fn executions(plan: &ScanPlan, sources: &Sources) -> Result<Vec<Execution>, GritlintError> {
+    plan.steps
+        .iter()
+        .flat_map(tasks_of)
+        .map(|task| {
+            let files = task
+                .files()
+                .iter()
+                .map(|file| input_file(&task, file, sources).map(|input| (input, task.reads(file))))
+                .collect::<Result<Vec<_>, _>>()?;
+            Ok(Execution::new(
+                task.rule().rule().language().engine(),
+                files,
+            ))
+        })
+        .collect()
 }
 
 #[must_use]

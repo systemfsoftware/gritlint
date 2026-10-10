@@ -1,5 +1,8 @@
 # Times PR1's gritlint against this build on a pinned public corpus and fails
-# when the two reports, or the current build's single-threaded report, differ.
+# when the two reports, the current build's single-threaded report, or the
+# in-process per-phase run differ. The per-phase run times gritlint_core inside
+# the bench, so the bench builds with the release profile over gritlint's own
+# release dependency artifacts.
 {
   lib,
   runCommand,
@@ -25,10 +28,10 @@ let
   };
 
   bench = craneLib.buildPackage (
-    gritlint.passthru.devArgs
+    gritlint.passthru.releaseArgs
     // {
       pname = "gritlint-bench";
-      cargoArtifacts = null;
+      inherit (gritlint.passthru) cargoArtifacts;
       cargoExtraArgs = "--locked -p gritlint_bench";
       doCheck = false;
     }
@@ -46,6 +49,7 @@ runCommand "gritlint-bench" { inherit after; } ''
       --candidate ${gritlint}/bin/gritlint \
       --corpus ${corpus} \
       --config ${../crates/gritlint_bench/effect.gritlint.json} \
+      --packs ${../packs} \
       --rounds 15
   } > $out/summary.md
 ''
