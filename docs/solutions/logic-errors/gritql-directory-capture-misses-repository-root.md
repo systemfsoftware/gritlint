@@ -55,7 +55,7 @@ A root `tsconfig.json` binds `$dir` to `""`. The join holds only if the `package
 - A directory capture used in a multifile join matches the empty directory: `(.*/|)`, never `(.*/)`.
 - A file-name pattern that binds nothing matches the repository root: `(?:.*/)?name`, never `.*/name`.
 - Every such rule has at least one case whose files sit at the case root, so the root path is exercised.
-- A case pairing a root file with a nested one is kept only if a one-step defect makes it fail. In `internals-export-map` it does (`bad/root-bundler-nested-internals`). In `typecheck-build-mode`, deleting the `$manifest_dir <: $dir` join changes no case outcome, so such a case would pin nothing.
+- Every join also has a case that pairs a root file with a nested one, judged against the rule's join conjunct. The empty capture must not join them: `""` is a directory like any other, not a prefix of every directory. In `internals-export-map`, a root `tsdown.config.ts` must not count as a nested package's bundler (`bad/root-bundler-nested-internals`). In `typecheck-build-mode`, a reference-only root `tsconfig.json` must not judge a nested `package.json` (`good/root-tsconfig-nested-package`).
 - GritQL regexes match the whole path, so dropping the slash does not let `mytsconfig.json` match `tsconfig.json`.
 
 ## Prevention
