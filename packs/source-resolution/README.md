@@ -18,7 +18,7 @@ source).
 | `shared-vitest-config`        | the shared config names the condition and sets both Vite condition pipelines                                                              |
 | `api-extractor-tsconfig`      | the extractor's `compiler.tsconfigFilePath` target clears `customConditions`                                                              |
 | `internals-export-map`        | a package **without** a bundler config carries no condition in its export map                                                             |
-| `tsconfig-paths`              | no tsconfig maps the package's own published name through `compilerOptions.paths`                                                         |
+| `tsconfig-paths`              | no tsconfig maps the package's own published name, or a subpath of it, through `compilerOptions.paths`                                    |
 
 ## Enable it
 
@@ -78,10 +78,16 @@ string. All five are required.
 - **One hop of `extends`.** GritQL cannot resolve a specifier to a file, so
   `tsconfig-condition` accepts an `extends` matching `presets` or a relative
   specifier, and `tsconfig-preset-module-mode` checks the declared preset files
-  directly. `tsconfig-paths` compares the mapped key against the manifest name
-  by capturing both as regex captures, which is the one comparison form that
-  detects a difference across bubbles.
-- **Known gaps.** A consumer-safe package whose `exports` lost the condition on
-  _all_ of its object subpaths (so that no subpath key order can be judged) is
-  not reported by `export-map-order`; `tsdown-exports` reports the same mistake
-  one layer up, as a missing `devExports`.
+  directly. `tsconfig-paths` compares the mapped key's package name (the key
+  without any `/<subpath>` or `/*`) against the manifest name by capturing both
+  as regex captures, which is the one comparison form that detects a
+  difference across bubbles.
+
+## Known limits
+
+- A consumer-safe package whose `exports` lost the condition on _all_ of its
+  object subpaths (so that no subpath key order can be judged) is not reported
+  by `export-map-order`; `tsdown-exports` reports the same mistake one layer up,
+  as a missing `devExports`.
+- `tsdown-exports` reads only an inline `exports` object: `exports` bound to an
+  identifier is not checked, because a static rule cannot read its value.

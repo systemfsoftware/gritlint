@@ -1,0 +1,7 @@
+{
+  "compilerOptions": {
+    "paths": {
+      "@acme/app/testing": ["./src/testing.ts"]
+    }
+  }
+}
