@@ -1,0 +1,8 @@
+{"total_count": 6, "artifacts": [
+  {"id": 1, "name": "mutants-plan-1", "expired": false},
+  {"id": 2, "name": "mutants.out-1-0", "expired": false},
+  {"id": 3, "name": "mutants.out", "expired": false},
+  {"id": 4, "name": "mutants.out-1-1", "expired": true},
+  {"id": 5, "name": "coverage", "expired": false},
+  {"id": 6, "name": "mutants.outdated", "expired": false}
+]}

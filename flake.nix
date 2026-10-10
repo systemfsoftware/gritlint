@@ -88,6 +88,12 @@
               [ "$("$bin" --version)" = "gritlint ${gritlintVersion}" ]
               touch $out
             '';
+            gritlint-mutants-plan = pkgs.runCommand "gritlint-mutants-plan" {
+              nativeBuildInputs = [ pkgs.git pkgs.jq ];
+            } ''
+              bash ${./scripts/tools}/mutants-plan.test.sh
+              touch $out
+            '';
           }
           // import ./nix/gritlint-checks.nix {
             inherit (pkgs) lib runCommand;
