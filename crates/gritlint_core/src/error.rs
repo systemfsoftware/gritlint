@@ -74,8 +74,15 @@ pub enum GritlintError {
         path: String,
         reason: RelPathRefusal,
     },
-    #[error("target file `{file}` does not parse: {message}")]
-    TargetParse { file: String, message: String },
+    #[error(
+        "{file}:{line}:{column}: target-does-not-parse: {message} Next: fix the syntax at that position; if the language's own compiler accepts it, report the construct to gritlint, and never ignore the file."
+    )]
+    TargetParse {
+        file: String,
+        line: u32,
+        column: u32,
+        message: String,
+    },
     #[error("target file `{path}` was planned for a rule but never read")]
     SourceUnread { path: String },
     #[error("ignore glob `{glob}` is invalid: {message}")]

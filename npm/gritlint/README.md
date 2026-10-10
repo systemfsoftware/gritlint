@@ -70,6 +70,10 @@ one bad case asserting a range.
 
 `gritlint check --format <format>`; exit 0 clean, 1 findings, 2 refused.
 
+A target file that does not parse is never skipped: the run is refused, and
+stderr names it as `<file>:<line>:<column>: target-does-not-parse` in every
+format.
+
 | Format | Output |
 | --- | --- |
 | `human` (default) | every finding and the per-rule counts |
