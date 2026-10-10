@@ -27,7 +27,7 @@ injectTypes }`, with `injectTypes` visiting every export key except
 language js
 multifile {
   file($name, $body) where {
-    $name <: r".*/tsdown\.config\.ts",
+    $name <: r"(?:.*/)?tsdown\.config\.ts",
     $program <: or {
       contains `exports: $exports` where {
         $exports <: `{ $first, $... }`,
