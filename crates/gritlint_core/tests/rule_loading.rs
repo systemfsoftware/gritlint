@@ -364,6 +364,12 @@ fn a_rule_without_valid_frontmatter_refuses_naming_the_file_and_the_key() {
             "reasonCode",
             FrontmatterProblem::NotKebabCase,
         ),
+        (
+            "empty",
+            "---\nreasonCode:\nnextAction: Fix it.\n---\n",
+            "reasonCode",
+            FrontmatterProblem::Empty,
+        ),
     ];
     for (name, frontmatter, key, problem) in cases {
         let temp = tempfile::tempdir().expect("temp dir");
@@ -391,4 +397,26 @@ fn a_rule_without_valid_frontmatter_refuses_naming_the_file_and_the_key() {
             "{name}: {message}"
         );
     }
+}
+
+#[test]
+fn a_frontmatter_block_that_never_closes_refuses_naming_the_file() {
+    let temp = tempfile::tempdir().expect("temp dir");
+    let consumer = temp.path().join("unclosed.grit");
+    write(
+        &consumer,
+        "---\nreasonCode: one\nnextAction: Fix it.\nlanguage json\n`\"react\": $_`\n",
+    );
+
+    let error = error_of(decode::load_rules(
+        &[],
+        &BTreeMap::new(),
+        sources(std::slice::from_ref(&consumer)),
+        Path::new("gritlint.json"),
+    ));
+
+    assert!(
+        matches!(&error, GritlintError::RuleFrontmatterUnclosed { path } if *path == consumer),
+        "{error}"
+    );
 }

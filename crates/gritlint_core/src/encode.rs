@@ -297,34 +297,43 @@ pub fn escape_property(text: &str) -> String {
 pub fn render_github_summary(outcome: &Outcome) -> String {
     let findings = outcome.findings();
     let mut parts = vec![format!("### gritlint\n\n{}\n", verdict_line(outcome))];
-    if findings.is_empty() {
-        return parts.concat();
+    if !findings.is_empty() {
+        parts.push(
+            "\n| Location | Rule | Reason | Message | Next action |\n| --- | --- | --- | --- | --- |\n"
+                .to_owned(),
+        );
+        parts.extend(findings.iter().take(SUMMARY_FINDINGS).map(|finding| {
+            format!(
+                "| {} | {} | {} | {} | {} |\n",
+                table_cell(&finding.location().to_string()),
+                table_cell(&finding.rule_id().as_string()),
+                table_cell(finding.guidance().reason_code().as_str()),
+                table_cell(finding.message()),
+                table_cell(finding.guidance().next_action()),
+            )
+        }));
+        let rest = findings.len().saturating_sub(SUMMARY_FINDINGS);
+        if rest > 0 {
+            parts.push(format!(
+                "\n{ELLIPSIS} and {rest} more; `--format json` lists every finding.\n"
+            ));
+        }
     }
-    parts.push(
-        "\n| Location | Rule | Reason | Message | Next action |\n| --- | --- | --- | --- | --- |\n"
-            .to_owned(),
-    );
-    parts.extend(findings.iter().take(SUMMARY_FINDINGS).map(|finding| {
-        format!(
-            "| {} | {} | {} | {} | {} |\n",
-            table_cell(&finding.location().to_string()),
-            table_cell(&finding.rule_id().as_string()),
-            table_cell(finding.guidance().reason_code().as_str()),
-            table_cell(finding.message()),
-            table_cell(finding.guidance().next_action()),
-        )
-    }));
-    let rest = findings.len().saturating_sub(SUMMARY_FINDINGS);
-    if rest > 0 {
-        parts.push(format!(
-            "\n{ELLIPSIS} and {rest} more; `--format json` lists every finding.\n"
-        ));
+    if !outcome.counts().is_empty() {
+        parts.push("\n| Rule | Files evaluated |\n| --- | --- |\n".to_owned());
+        parts.extend(outcome.counts().iter().map(|count| {
+            format!(
+                "| {} | {} |\n",
+                table_cell(&count.rule_id().as_string()),
+                count.files()
+            )
+        }));
     }
     parts.concat()
 }
 
 fn table_cell(text: &str) -> String {
-    one_line(text).replace('|', "\\|")
+    one_line(text).replace('\\', "\\\\").replace('|', "\\|")
 }
 
 #[must_use]

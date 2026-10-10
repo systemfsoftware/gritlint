@@ -118,6 +118,33 @@ fn a_bad_case_that_yields_no_finding_names_the_rule_and_the_case() {
 }
 
 #[test]
+fn a_bad_case_without_expected_locations_fails_listing_what_it_reports() {
+    let temp = tempfile::tempdir().expect("temp dir");
+    write_pack(temp.path(), "pack-one", &[], "no-console.grit", NO_CONSOLE);
+    write(
+        temp.path(),
+        "pack-one/fixtures/no-console/bad/basic/package.json",
+        "{\"console\": \"debug\"}",
+    );
+    write(
+        temp.path(),
+        "pack-one/fixtures/no-console/good/basic/package.json",
+        "{\"name\": \"app\"}",
+    );
+
+    let outcome = run_fixtures(temp.path()).expect("run the fixtures");
+
+    let failures = outcome.failures();
+    assert_eq!(failures.len(), 1, "{outcome:#?}");
+    assert_eq!(failures[0].case().as_str(), "fixtures/no-console/bad/basic");
+    assert!(
+        failures[0].detail().contains(BASIC_EXPECTED.trim_end()),
+        "{}",
+        failures[0].detail()
+    );
+}
+
+#[test]
 fn a_good_case_that_yields_a_finding_names_the_finding() {
     let temp = tempfile::tempdir().expect("temp dir");
     write_pack(temp.path(), "pack-one", &[], "no-console.grit", NO_CONSOLE);

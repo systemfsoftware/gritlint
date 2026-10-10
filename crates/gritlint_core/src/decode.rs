@@ -232,6 +232,7 @@ pub fn parse_rule(
 const REASON_CODE: &str = "reasonCode";
 const NEXT_ACTION: &str = "nextAction";
 const LOCATE: &str = "locate";
+pub(crate) const FRONTMATTER_KEYS: [&str; 3] = [REASON_CODE, NEXT_ACTION, LOCATE];
 
 fn read_and_blank_frontmatter(
     text: &str,
@@ -268,7 +269,7 @@ fn read_and_blank_frontmatter(
         let (key, value) = line
             .split_once(':')
             .map_or((line, ""), |(key, value)| (key.trim(), value.trim()));
-        let key = [REASON_CODE, NEXT_ACTION, LOCATE]
+        let key = FRONTMATTER_KEYS
             .into_iter()
             .find(|known| *known == key)
             .ok_or_else(|| refuse(key, FrontmatterProblem::Unknown))?;

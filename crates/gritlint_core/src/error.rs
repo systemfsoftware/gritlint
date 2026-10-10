@@ -103,12 +103,18 @@ pub enum FrontmatterProblem {
 
 impl std::fmt::Display for FrontmatterProblem {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        formatter.write_str(match self {
-            Self::Missing => "is missing",
-            Self::Repeated => "is repeated",
-            Self::Unknown => "is unknown; the keys are `reasonCode`, `nextAction` and `locate`",
-            Self::Empty => "has no value",
-            Self::NotKebabCase => "must be lowercase kebab-case, such as `missing-provenance`",
-        })
+        match self {
+            Self::Missing => formatter.write_str("is missing"),
+            Self::Repeated => formatter.write_str("is repeated"),
+            Self::Unknown => write!(
+                formatter,
+                "is unknown; the keys are `{}`",
+                crate::decode::FRONTMATTER_KEYS.join("`, `")
+            ),
+            Self::Empty => formatter.write_str("has no value"),
+            Self::NotKebabCase => {
+                formatter.write_str("must be lowercase kebab-case, such as `missing-provenance`")
+            }
+        }
     }
 }

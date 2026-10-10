@@ -71,7 +71,7 @@ fn finding() -> impl Strategy<Value = Finding> {
         prop_oneof![Just("alpha"), Just("beta"), Just("local")],
         prop_oneof![rel_path(), hostile_path()],
         range(),
-        "[a-zA-Zé:,%|\r\n ]{0,300}",
+        "[a-zA-Zé:,%|\\\\\r\n ]{0,300}",
         guidance(),
     )
         .prop_map(|(rule, path, range, message, guidance)| {
@@ -226,6 +226,36 @@ proptest! {
     }
 
     #[test]
+    fn github_summary_is_one_table_row_per_shown_finding_and_rule(
+        findings in prop::collection::vec(finding(), 0..130),
+        counts in prop::collection::vec(rule_count(), 0..4),
+    ) {
+        let total = findings.len();
+        let shown = total.min(encode::SUMMARY_FINDINGS);
+        let outcome = decide::canonicalize(findings, counts, 1);
+        let rendered = encode::render_github_summary(&outcome);
+
+        let rows: Vec<&str> = rendered
+            .lines()
+            .filter(|line| {
+                line.starts_with('|')
+                    && !line.split('|').all(|cell| matches!(cell.trim(), "" | "---"))
+            })
+            .collect();
+        let headers = usize::from(shown > 0) + usize::from(!outcome.counts().is_empty());
+        prop_assert_eq!(rows.len(), headers + shown + outcome.counts().len());
+        let (finding_rows, count_rows) = rows.split_at(usize::from(shown > 0) + shown);
+        for row in finding_rows {
+            prop_assert_eq!(unescaped_pipes(row), 6, "{}", row);
+        }
+        for row in count_rows {
+            prop_assert_eq!(unescaped_pipes(row), 3, "{}", row);
+        }
+        let remainder = format!(" and {} more;", total - shown);
+        prop_assert_eq!(rendered.contains(&remainder), total > shown);
+    }
+
+    #[test]
     fn escaped_values_carry_no_command_delimiters_and_round_trip(text in "[a-zé%:,\r\n ]{0,40}") {
         let data = encode::escape_data(&text);
         let property = encode::escape_property(&text);
@@ -260,4 +290,15 @@ fn unescape(escaped: &str) -> Result<String, TestCaseError> {
         out.push_str(rest);
         Ok(out)
     })
+}
+
+fn unescaped_pipes(row: &str) -> usize {
+    row.chars()
+        .fold((0, false), |(pipes, escaped), character| match character {
+            _ if escaped => (pipes, false),
+            '\\' => (pipes, true),
+            '|' => (pipes + 1, false),
+            _ => (pipes, false),
+        })
+        .0
 }

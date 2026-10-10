@@ -73,7 +73,7 @@ let
       root = ../.;
       fileset = ../Cargo.lock;
     };
-    hash = "sha256-yEcgIYXYPSmDuBN2ySjykauSPBa8FxhEBihBmPckC9g=";
+    hash = "sha256-nm7g1VO3kWYonOPQGFpeU40nw7GhiSQ6SWBJsOSpOpQ=";
   };
 
   # The registry crates are linked as they are; only the git crates need the
