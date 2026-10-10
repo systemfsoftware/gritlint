@@ -37,11 +37,7 @@ fn rule_with(pattern: &str) -> ParsedRule {
 
 fn selected(path: &str) -> SelectedFile {
     let language = Language::from_extension("json").expect("the json grammar is compiled in");
-    SelectedFile::new(
-        language,
-        RelPath::new(path).expect("a normalized path"),
-        String::new(),
-    )
+    SelectedFile::new(language, RelPath::new(path).expect("a normalized path"))
 }
 
 fn finding() -> impl Strategy<Value = Finding> {

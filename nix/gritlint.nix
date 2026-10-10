@@ -62,6 +62,7 @@ let
       ../clippy.toml
       ../apps/gritlint
       ../crates/gritlint_core
+      ../crates/gritlint_bench
       ../packs
     ];
   };
@@ -71,7 +72,7 @@ let
       root = ../.;
       fileset = ../Cargo.lock;
     };
-    hash = "sha256-j96CiB8XTiRqyZ79LjUnqyOsmkAnwmu2/niYeBnSmdI=";
+    hash = "sha256-yEcgIYXYPSmDuBN2ySjykauSPBa8FxhEBihBmPckC9g=";
   };
 
   # The registry crates are linked as they are; only the git crates need the
@@ -115,6 +116,7 @@ craneLib.buildPackage (
     doCheck = false;
 
     passthru = {
+      releaseArgs = common;
       inherit
         engineRev
         engineSource

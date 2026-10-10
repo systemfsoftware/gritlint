@@ -1,9 +1,10 @@
 #![allow(clippy::disallowed_methods, clippy::disallowed_types)]
 
 use crate::decode::{is_rule_file, is_scannable};
-use crate::domain::{IgnoreGlobs, RawFile, RawTree, RuleSource, SourcePath};
+use crate::domain::{IgnoreGlobs, RawFile, RawTree, RelPath, RuleSource, SourcePath, Sources};
 use crate::error::GritlintError;
 use ignore::WalkBuilder;
+use rayon::prelude::*;
 use std::path::{Path, PathBuf};
 
 pub fn read_rule_sources(paths: &[PathBuf]) -> Result<Vec<RuleSource>, GritlintError> {
@@ -20,7 +21,7 @@ pub fn read_rule_sources(paths: &[PathBuf]) -> Result<Vec<RuleSource>, GritlintE
     Ok(sources)
 }
 
-pub fn walk(root: &Path, ignore: &IgnoreGlobs) -> Result<Vec<RawFile>, GritlintError> {
+pub fn walk(root: &Path, ignore: &IgnoreGlobs) -> Vec<PathBuf> {
     let walker = WalkBuilder::new(root)
         .standard_filters(true)
         .require_git(false)
@@ -31,18 +32,25 @@ pub fn walk(root: &Path, ignore: &IgnoreGlobs) -> Result<Vec<RawFile>, GritlintE
         })
         .build();
 
-    let mut files: Vec<RawFile> = walker
+    let mut paths: Vec<PathBuf> = walker
         .filter_map(Result::ok)
         .filter(|entry| entry.file_type().is_some_and(|kind| kind.is_file()))
         .filter(|entry| {
             is_scannable(entry.path()) && !ignore.matches(&relative(root, entry.path()))
         })
-        .map(|entry| {
-            read_text(entry.path()).map(|contents| RawFile::new(entry.path().to_owned(), contents))
-        })
-        .collect::<Result<Vec<_>, _>>()?;
-    files.sort_by(|left, right| left.path().cmp(right.path()));
-    Ok(files)
+        .map(ignore::DirEntry::into_path)
+        .collect();
+    paths.sort();
+    paths
+}
+
+pub fn read_sources(root: &Path, paths: &[RelPath]) -> Result<Sources, GritlintError> {
+    paths
+        .par_iter()
+        .map(|path| read_text(&root.join(path.as_str())).map(|text| (path.clone(), text)))
+        .collect::<Vec<_>>()
+        .into_iter()
+        .collect()
 }
 
 pub fn read_tree(root: &Path) -> Result<RawTree, GritlintError> {

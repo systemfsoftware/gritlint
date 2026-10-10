@@ -497,6 +497,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "gritlint_bench"
+version = "0.1.0"
+dependencies = [
+ "gritlint_core",
+ "rayon",
+]
+
+[[package]]
 name = "gritlint_core"
 version = "0.1.0"
 dependencies = [
@@ -507,6 +515,7 @@ dependencies = [
  "marzano-language",
  "marzano-util",
  "proptest",
+ "rayon",
  "regex",
  "schemars",
  "serde",

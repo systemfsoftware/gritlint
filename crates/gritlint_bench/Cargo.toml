@@ -1,0 +1,16 @@
+[package]
+name = "gritlint_bench"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+description = "Times a baseline gritlint against the current build on one corpus, breaks the current build's single-threaded run into phases, and fails when any report differs."
+publish = false
+
+[dependencies]
+gritlint_core = { path = "../gritlint_core" }
+rayon = { workspace = true }
+
+[lints]
+workspace = true
