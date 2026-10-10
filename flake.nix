@@ -45,17 +45,43 @@
         let
           system = pkgs.stdenv.hostPlatform.system;
           exported = self.packages.${system};
-          sandboxed = pkgs.callPackage ./nix/gritlint-sandbox.nix { gritlint = exported.gritlint-unwrapped; };
+          # Stands in for the CLI inside the exported wrapper and exits 1 naming
+          # every isolation the wrapper failed to give it.
+          escapeProbe = pkgs.writeShellScriptBin "gritlint" ''
+            escaped=0
+            if [ -e "$1" ]; then echo "read $1 outside the working directory"; escaped=1; fi
+            if { : > written; } 2>/dev/null; then echo "wrote the working directory"; escaped=1; fi
+            if [ -n "''${GRITLINT_PROBE_ENV-}" ]; then echo "kept the caller's environment"; escaped=1; fi
+            exit "$escaped"
+          '';
         in
         {
           # `nix flake check` evaluates packages without building them; a check builds it.
           gritlint = exported.gritlint;
-          # Consumers take `packages.<system>.gritlint` as the sandboxed CLI, so
-          # no later edit may bind that name to anything else.
-          gritlint-is-sandboxed =
-            if exported.gritlint.drvPath == sandboxed.drvPath
-            then pkgs.runCommand "gritlint-is-sandboxed" { } "touch $out"
-            else throw "flake.nix: packages.${system}.gritlint is not nix/gritlint-sandbox.nix over packages.${system}.gritlint-unwrapped";
+          # Consumers take `packages.<system>.gritlint` as the sandboxed CLI. The
+          # exported wrapper runs the probe from a working directory next to a
+          # file it must not see; rebinding the name to an unsandboxed build
+          # fails the `override`, and loosening the sandbox fails the probe.
+          gritlint-is-sandboxed = pkgs.runCommand "gritlint-is-sandboxed" { } ''
+            touch outside && mkdir work && cd work
+            if GRITLINT_PROBE_ENV=1 ${escapeProbe}/bin/gritlint "$NIX_BUILD_TOP/outside"; then
+              echo "the probe saw no escape without a sandbox, so it proves nothing" >&2
+              exit 1
+            fi
+            rm -f written
+            GRITLINT_PROBE_ENV=1 ${exported.gritlint.override { gritlint = escapeProbe; }}/bin/gritlint "$NIX_BUILD_TOP/outside"
+            touch $out
+          '';
+          # `packages.<system>.gritlint-unwrapped` is the compiled CLI itself, not a wrapper.
+          gritlint-unwrapped-is-plain = pkgs.runCommand "gritlint-unwrapped-is-plain" { } ''
+            bin=${exported.gritlint-unwrapped}/bin/gritlint
+            if [ "$(head -c4 "$bin")" != $'\x7fELF' ]; then
+              echo "packages.${system}.gritlint-unwrapped: bin/gritlint is not the compiled binary" >&2
+              exit 1
+            fi
+            [ "$("$bin" --version)" = "gritlint ${gritlintVersion}" ]
+            touch $out
+          '';
         });
 
       devShells = forEachSystem (pkgs: {
