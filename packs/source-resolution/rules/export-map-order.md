@@ -27,10 +27,10 @@ visit every export key except `./package.json`, inserting `types` before
 language json
 multifile {
   bubble($dir) file($name, $body) where {
-    $name <: r"(.*/)tsdown\.config\.ts"($dir)
+    $name <: r"(.*/|)tsdown\.config\.ts"($dir)
   },
   bubble($dir) file($name, $body) where {
-    $name <: r"(.*/)package\.json"($package_dir),
+    $name <: r"(.*/|)package\.json"($package_dir),
     $package_dir <: $dir,
     $program <: contains `"exports": $exports` where {
       $exports <: or {
