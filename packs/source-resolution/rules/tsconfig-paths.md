@@ -7,8 +7,8 @@ locate: `"paths": $_`
 # tsconfig paths: never map the package's own published name
 
 No tsconfig may map the package's own published name, or any subpath of it
-(`<name>/*`, `<name>/<subpath>`), through `compilerOptions.paths`. A self-name mapping is a shortcut that bypasses the
-export map.
+(`<name>/*`, `<name>/<subpath>`), through `compilerOptions.paths`. A self-name
+mapping is a shortcut that bypasses the export map.
 
 `paths` is honoured only by the tools that read that tsconfig, so the mapping
 resolves source in some tools and `dist/` in others, and it silently stays
