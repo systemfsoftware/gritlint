@@ -8,7 +8,7 @@
 )]
 
 use gritlint_core::engine::{
-    self, CompileRequest, EngineOutcome, InputFile, NamedPattern, TargetLanguage,
+    self, CompileRequest, DiagnosticKind, EngineOutcome, InputFile, NamedPattern, TargetLanguage,
 };
 use std::collections::BTreeMap;
 
@@ -320,9 +320,33 @@ fn malformed_json_yields_a_parse_diagnostic_that_names_the_file() {
     assert!(
         parse_diagnostics
             .iter()
-            .all(|diagnostic| diagnostic.level < 400),
-        "the engine reports these at error severity (`AnalysisLog::is_error` is level < 400): \
-         {outcome:#?}"
+            .all(|diagnostic| diagnostic.kind() == DiagnosticKind::Parse),
+        "gritlint reads a parse failure from the level the engine logs it at: {outcome:#?}"
+    );
+}
+
+#[test]
+fn a_target_over_the_size_limit_is_skipped_with_a_too_large_diagnostic() {
+    let padding = " ".repeat(1_000_000);
+    let big = format!("{{\"name\": \"big\",{padding}\"private\": true}}\n");
+    let outcome = run(
+        JSONC_PATTERN,
+        json(),
+        &[],
+        &[],
+        &[("big/package.json", &big)],
+    );
+
+    assert!(outcome.matches.is_empty(), "{outcome:#?}");
+    assert_eq!(
+        outcome
+            .diagnostics
+            .iter()
+            .map(|diagnostic| (diagnostic.path.as_str(), diagnostic.kind()))
+            .collect::<Vec<_>>(),
+        [("big/package.json", DiagnosticKind::TooLarge)],
+        "the engine skips a file over 1,000,000 bytes and logs it at the level gritlint \
+         reads as too large, not as a parse failure: {outcome:#?}"
     );
 }
 
@@ -364,6 +388,48 @@ fn a_typescript_pattern_finds_ssr_conditions_in_ts_and_js() {
     assert!(
         elsewhere.matches.is_empty(),
         "`conditions` outside `ssr.resolve` is not the configured condition: {elsewhere:#?}"
+    );
+}
+
+#[test]
+fn a_line_leading_angle_bracket_opens_a_member_in_a_type_and_compares_in_an_expression() {
+    let overloads = run(
+        "call_signature()",
+        tsx(),
+        &[],
+        &[],
+        &[(
+            "dual.ts",
+            "export type Dual = {\n  (limit: number): <A>(a: A) => A\n  <A>(a: A, limit: number): A\n}\n",
+        )],
+    );
+    assert!(overloads.diagnostics.is_empty(), "{overloads:#?}");
+    assert_eq!(
+        overloads.matches[0]
+            .ranges
+            .iter()
+            .map(|range| range.start_line)
+            .collect::<Vec<_>>(),
+        [2, 3],
+        "the generic signature on its own line is the type's second member: {overloads:#?}"
+    );
+
+    let comparison = run(
+        "`$left < $right`",
+        tsx(),
+        &[],
+        &[],
+        &[("lower.ts", "export const lower = left\n  < right\n")],
+    );
+    assert!(comparison.diagnostics.is_empty(), "{comparison:#?}");
+    assert_eq!(
+        comparison.matches[0]
+            .ranges
+            .iter()
+            .map(|range| (range.start_line, range.end_line))
+            .collect::<Vec<_>>(),
+        [(1, 2)],
+        "a `<` that starts a line still continues the expression above it: {comparison:#?}"
     );
 }
 

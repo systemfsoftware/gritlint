@@ -70,6 +70,15 @@ one bad case asserting a range.
 
 `gritlint check --format <format>`; exit 0 clean, 1 findings, 2 refused.
 
+A target file the engine cannot scan is never skipped: the run is refused, and
+stderr carries one line with a next action, the same in every format:
+
+| Refusal | Stderr line |
+| --- | --- |
+| the file does not parse | `ERROR gritlint: <file>:<line>:<column>: target-does-not-parse: …` |
+| the file is over the engine's 1,000,000-byte limit | `ERROR gritlint: <file>: target-too-large: …` |
+| the engine logged anything else for the file | `ERROR gritlint: <file>: target-not-scanned: …` |
+
 | Format | Output |
 | --- | --- |
 | `human` (default) | every finding and the per-rule counts |

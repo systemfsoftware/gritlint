@@ -74,8 +74,23 @@ pub enum GritlintError {
         path: String,
         reason: RelPathRefusal,
     },
-    #[error("target file `{file}` does not parse: {message}")]
-    TargetParse { file: String, message: String },
+    #[error(
+        "{file}:{line}:{column}: target-does-not-parse: {message} Next action: fix the syntax at that position; if the language's own compiler accepts it, report the construct to gritlint, and never ignore the file."
+    )]
+    TargetParse {
+        file: String,
+        line: u32,
+        column: u32,
+        message: String,
+    },
+    #[error(
+        "{file}: target-too-large: {message} Next action: the engine never scans a file over its size limit (1,000,000 bytes); if the file is generated or vendored, add it to `ignore` in the gritlint config, otherwise split it below the limit."
+    )]
+    TargetTooLarge { file: String, message: String },
+    #[error(
+        "{file}: target-not-scanned: {message} Next action: report the message and the file to gritlint; the engine could not scan the file, so the run cannot pass it."
+    )]
+    TargetNotScanned { file: String, message: String },
     #[error("target file `{path}` was planned for a rule but never read")]
     SourceUnread { path: String },
     #[error("ignore glob `{glob}` is invalid: {message}")]
