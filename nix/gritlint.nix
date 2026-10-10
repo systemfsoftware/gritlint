@@ -11,7 +11,7 @@
 #    under one derivation hash. `fetchCargoVendor` picks deterministically,
 #    and its fixed-output hash fails loudly if the vendor tree ever changes,
 #    so it vendors here rather than crane's own git vendoring. A re-pin
-#    updates `cargoHash`.
+#    updates `cargoDeps.hash`.
 # 3. marzano-language reads `include_str!("../../../resources/node-types/…")`
 #    from outside its crate, which from `<vendor>/source-git-0/<crate>/src`
 #    is the vendor root. `vendor` copies those files there from a checkout
