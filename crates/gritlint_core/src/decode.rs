@@ -278,7 +278,7 @@ pub fn load_rules(
         });
     }
 
-    let compiled = compile_all(&parsed)?;
+    let compiled = compile_rules(&parsed)?;
     NonEmpty::new(compiled).ok_or_else(|| GritlintError::NoRulesEnabled {
         config: config_path.to_owned(),
     })
@@ -365,7 +365,7 @@ pub fn is_rule_file(path: &Path) -> bool {
     })
 }
 
-fn compile_all(parsed: &[ParsedRule]) -> Result<Vec<CompiledRule>, GritlintError> {
+pub fn compile_rules(parsed: &[ParsedRule]) -> Result<Vec<CompiledRule>, GritlintError> {
     let all: Vec<&ParsedRule> = parsed.iter().collect();
     parsed
         .par_iter()
@@ -373,11 +373,6 @@ fn compile_all(parsed: &[ParsedRule]) -> Result<Vec<CompiledRule>, GritlintError
         .collect::<Vec<_>>()
         .into_iter()
         .collect()
-}
-
-pub fn compile_rule(rule: &ParsedRule, all: &[ParsedRule]) -> Result<CompiledRule, GritlintError> {
-    let all: Vec<&ParsedRule> = all.iter().collect();
-    CompiledRule::compile(rule, &all)
 }
 
 fn push_unique(

@@ -10,7 +10,9 @@
 use gritlint_core::GritlintError;
 use gritlint_core::decide;
 use gritlint_core::decode;
-use gritlint_core::domain::{NonEmpty, Outcome, ParsedRule, RuleSource, SourcePath};
+use gritlint_core::domain::{
+    NonEmpty, Outcome, ParsedRule, RuleSource, ScanPlan, SourcePath, Sources,
+};
 use gritlint_core::encode;
 use gritlint_core::shell;
 use std::collections::BTreeMap;
@@ -65,16 +67,17 @@ fn markdown_rule(name: &str, description: &str, body: &str) -> ParsedRule {
     decode::parse_rule(None, &source).expect("parse the markdown rule")
 }
 
-fn scan(root: &Path, rules: &[ParsedRule], ignore: &[String]) -> Result<Outcome, GritlintError> {
+fn plan(root: &Path, rules: &[ParsedRule], ignore: &[String]) -> Result<ScanPlan, GritlintError> {
     let globs = decode::ignore_globs(ignore)?;
     let walked = shell::walk(root, &globs);
     let files = decode::select_files(walked, root)?;
-    let compiled = rules
-        .iter()
-        .map(|rule| decode::compile_rule(rule, rules))
-        .collect::<Result<Vec<_>, _>>()?;
+    let compiled = decode::compile_rules(rules)?;
     let rules = NonEmpty::new(compiled).expect("at least one rule");
-    let plan = decide::plan(&rules, &files);
+    Ok(decide::plan(&rules, &files))
+}
+
+fn scan(root: &Path, rules: &[ParsedRule], ignore: &[String]) -> Result<Outcome, GritlintError> {
+    let plan = plan(root, rules, ignore)?;
     let sources = shell::read_sources(root, &decide::sources_needed(&plan))?;
     decide::scan(&plan, &sources)
 }
@@ -116,6 +119,63 @@ fn a_target_file_that_fails_to_parse_names_the_file() {
         "{error}"
     );
     assert!(error.to_string().contains("tsconfig.json"), "{error}");
+}
+
+#[test]
+fn the_refusal_names_the_first_unparseable_file_in_plan_order() {
+    let temp = tempfile::tempdir().expect("temp dir");
+    for directory in ["a", "b"] {
+        write(
+            temp.path(),
+            &format!("{directory}/tsconfig.json"),
+            "{\"compilerOptions\": {",
+        );
+        write(
+            temp.path(),
+            &format!("{directory}/package.json"),
+            "{\"vite\": \"1\"}",
+        );
+    }
+
+    let error = scan(temp.path(), &[rule("join", SIBLING_JOIN)], &[])
+        .expect_err("a malformed target file is an instrument error");
+
+    assert!(
+        error.to_string().contains("a/tsconfig.json"),
+        "the first directory's file must be named, whatever the thread schedule: {error}"
+    );
+}
+
+#[test]
+fn an_unreadable_file_refuses_the_run_only_when_a_rule_evaluates_it() {
+    let temp = tempfile::tempdir().expect("temp dir");
+    write(temp.path(), "package.json", "{\"react\": \"18\"}\n");
+    fs::write(temp.path().join("broken.ts"), [0xff, 0xfe]).expect("write the ts file");
+
+    let outcome = scan(temp.path(), &[rule("react", REACT_PAIR)], &[])
+        .expect("no json rule reads a typescript file");
+    assert_eq!(outcome.findings().len(), 1, "{outcome:#?}");
+
+    fs::write(temp.path().join("broken.json"), [0xff, 0xfe]).expect("write the json file");
+    let error = scan(temp.path(), &[rule("react", REACT_PAIR)], &[])
+        .expect_err("a json file the rule evaluates must be read");
+    assert!(matches!(error, GritlintError::Io { .. }), "{error}");
+    assert!(error.to_string().contains("broken.json"), "{error}");
+}
+
+#[test]
+fn a_planned_file_missing_from_the_sources_refuses_the_scan() {
+    let temp = tempfile::tempdir().expect("temp dir");
+    write(temp.path(), "package.json", "{\"react\": \"18\"}\n");
+    let plan = plan(temp.path(), &[rule("react", REACT_PAIR)], &[]).expect("plan");
+
+    let error = decide::scan(&plan, &Sources::from_iter([]))
+        .expect_err("a rule must never evaluate a file it was not given");
+
+    assert!(
+        matches!(error, GritlintError::SourceUnread { ref path } if path == "package.json"),
+        "{error}"
+    );
 }
 
 #[test]

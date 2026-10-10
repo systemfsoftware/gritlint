@@ -36,8 +36,7 @@ pub fn walk(root: &Path, ignore: &IgnoreGlobs) -> Vec<PathBuf> {
         .filter_map(Result::ok)
         .filter(|entry| entry.file_type().is_some_and(|kind| kind.is_file()))
         .filter(|entry| {
-            is_scannable(entry.path())
-                && (ignore.is_empty() || !ignore.matches(&relative(root, entry.path())))
+            is_scannable(entry.path()) && !ignore.matches(&relative(root, entry.path()))
         })
         .map(ignore::DirEntry::into_path)
         .collect();
