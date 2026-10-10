@@ -16,6 +16,8 @@ jobs:
     name: cargo mutants · x86_64-linux
     runs-on: ubuntu-latest
     timeout-minutes: 340
+    env:
+      CARGO_MUTANTS: nix develop --command nix shell --inputs-from . nixpkgs#cargo-mutants --command cargo mutants
     defaults:
       run:
         shell: bash
@@ -29,20 +31,15 @@ jobs:
           echo "CARGO_HOME=$RUNNER_TEMP/cargo-home" >> "$GITHUB_ENV"
           mkdir -p "$RUNNER_TEMP/cargo-home"
           cp "$(nix build --no-link --print-out-paths .#packages.x86_64-linux.gritlint-unwrapped.vendor)/config.toml" "$RUNNER_TEMP/cargo-home/"
-          nix develop --command true
-          nix shell --inputs-from . nixpkgs#cargo-mutants --command cargo mutants --version
+          $CARGO_MUTANTS --version
 
       - name: Mutants listed
-        run: |
-          nix develop --command nix shell --inputs-from . nixpkgs#cargo-mutants --command \
-            cargo mutants --workspace --list > "$RUNNER_TEMP/mutants.txt"
-          echo "**$(wc -l < "$RUNNER_TEMP/mutants.txt") mutants listed** in \`crates/gritlint_core/src\`" >> "$GITHUB_STEP_SUMMARY"
+        run: echo "**$($CARGO_MUTANTS --workspace --list | wc -l) mutants listed**" >> "$GITHUB_STEP_SUMMARY"
       - name: cargo mutants
         timeout-minutes: 310
         run: |
           status=0
-          nix develop --command nix shell --inputs-from . nixpkgs#cargo-mutants --command \
-            cargo mutants --workspace || status=$?
+          $CARGO_MUTANTS --workspace || status=$?
           echo "cargo mutants exited $status"
           case "$status" in
             0 | 2 | 3) ;;
