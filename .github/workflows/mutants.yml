@@ -34,7 +34,13 @@ jobs:
           $CARGO_MUTANTS --version
 
       - name: Mutants listed
-        run: echo "**$($CARGO_MUTANTS --workspace --list | wc -l) mutants listed**" >> "$GITHUB_STEP_SUMMARY"
+        run: |
+          count=$($CARGO_MUTANTS --workspace --list | wc -l)
+          echo "**$count mutants listed**" >> "$GITHUB_STEP_SUMMARY"
+          if [ "$count" -eq 0 ]; then
+            echo "::error file=.cargo/mutants.toml::examine_globs selects no mutant"
+            exit 1
+          fi
       - name: cargo mutants
         timeout-minutes: 310
         run: |

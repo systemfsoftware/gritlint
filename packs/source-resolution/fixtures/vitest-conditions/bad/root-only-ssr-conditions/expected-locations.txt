@@ -1,0 +1,1 @@
+source-resolution/vitest-conditions vitest.config.ts

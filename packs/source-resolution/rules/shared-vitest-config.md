@@ -24,7 +24,7 @@ replaces its defaults when they are set.
 language js
 multifile {
   file($name, $body) where {
-    $name <: r".*/vitest-config/lib/base\.js",
+    $name <: r"(?:.*/)?vitest-config/lib/base\.js",
     $name <: sharedVitestConfigFile(),
     $program <: or {
       not contains condition(),
