@@ -1,3 +1,9 @@
+---
+reasonCode: internals-exports-condition
+nextAction: Remove the source condition from this internals package's export map and add its build to lint's `dependsOn`.
+locate: `$subpath: { $cond: $_, "types": $_, "default": $_ }` where { $cond <: condition() }
+---
+
 # Internals package: keep the source condition out of its export map
 
 A package with a bundler config (`tsdown.config.ts`) is consumer-safe and exposes

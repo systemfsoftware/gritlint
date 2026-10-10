@@ -1,17 +1,38 @@
 use crate::domain::{
     CaseKind, CaseResult, CompiledRule, DirectoryBatch, Evaluation, Execution, Finding,
-    FixtureCase, FixtureLayout, FixtureOutcome, FixtureRule, NonEmpty, Outcome, ParsedRule,
-    RelPath, RuleCount, RuleKind, RuleStep, ScanPlan, SelectedFile, SelectedFiles, Sources,
-    Verdict,
+    FixtureCase, FixtureLayout, FixtureOutcome, FixtureRule, Location, NonEmpty, Outcome,
+    ParsedRule, Range, RelPath, RuleCount, RuleKind, RuleStep, ScanPlan, SelectedFile,
+    SelectedFiles, Sources, Verdict,
 };
 use crate::engine::{EngineMatch, EngineOutcome, InputFile};
 use crate::error::GritlintError;
 use rayon::prelude::*;
+use regex::Regex;
 use std::collections::BTreeMap;
 use std::path::Path;
+use std::sync::LazyLock;
 
 type Diagnostic = (String, String);
-type TaskRun = (Vec<Finding>, Option<Diagnostic>);
+
+struct Unlocated<'a> {
+    rule: &'a CompiledRule,
+    directory: &'a DirectoryBatch,
+    matched: NonEmpty<RelPath>,
+    message: String,
+}
+
+struct TaskRun<'a> {
+    findings: Vec<Finding>,
+    unlocated: Option<Unlocated<'a>>,
+    diagnostic: Option<Diagnostic>,
+}
+
+pub struct Matched<'a> {
+    findings: Vec<Finding>,
+    unlocated: Vec<Unlocated<'a>>,
+    counts: Vec<RuleCount>,
+    files_selected: usize,
+}
 
 #[must_use]
 pub fn plan(rules: &NonEmpty<CompiledRule>, files: &SelectedFiles) -> ScanPlan {
@@ -84,6 +105,14 @@ pub fn sources_needed(plan: &ScanPlan) -> Vec<RelPath> {
 }
 
 pub fn scan(plan: &ScanPlan, sources: &Sources) -> Result<Outcome, GritlintError> {
+    let matched = match_rules(plan, sources)?;
+    locate(matched, sources)
+}
+
+pub fn match_rules<'a>(
+    plan: &'a ScanPlan,
+    sources: &Sources,
+) -> Result<Matched<'a>, GritlintError> {
     let tasks: Vec<Task<'_>> = plan.steps.iter().flat_map(tasks_of).collect();
     let runs = tasks
         .par_iter()
@@ -91,18 +120,84 @@ pub fn scan(plan: &ScanPlan, sources: &Sources) -> Result<Outcome, GritlintError
         .collect::<Vec<_>>()
         .into_iter()
         .collect::<Result<Vec<_>, _>>()?;
-    let counts = plan.steps.iter().map(count_of).collect();
-    let (findings, diagnostic) = runs.into_iter().fold(
-        (Vec::<Finding>::new(), None),
-        |(mut findings, first), (task_findings, task_diagnostic)| {
-            findings.extend(task_findings);
-            (findings, first.or(task_diagnostic))
+    let (findings, unlocated, diagnostic) = runs.into_iter().fold(
+        (Vec::new(), Vec::new(), None),
+        |(mut findings, mut unlocated, diagnostic), run| {
+            findings.extend(run.findings);
+            unlocated.extend(run.unlocated);
+            (findings, unlocated, diagnostic.or(run.diagnostic))
         },
     );
     match diagnostic {
         Some((file, message)) => Err(GritlintError::TargetParse { file, message }),
-        None => Ok(canonicalize(findings, counts, plan.files_selected)),
+        None => Ok(Matched {
+            findings,
+            unlocated,
+            counts: plan.steps.iter().map(count_of).collect(),
+            files_selected: plan.files_selected,
+        }),
     }
+}
+
+pub fn locate(matched: Matched<'_>, sources: &Sources) -> Result<Outcome, GritlintError> {
+    let Matched {
+        mut findings,
+        unlocated,
+        counts,
+        files_selected,
+    } = matched;
+    let located = unlocated
+        .into_par_iter()
+        .map(|unlocated| place(unlocated, sources))
+        .collect::<Result<Vec<_>, _>>()?;
+    findings.extend(located);
+    Ok(canonicalize(findings, counts, files_selected))
+}
+
+fn place(unlocated: Unlocated<'_>, sources: &Sources) -> Result<Finding, GritlintError> {
+    let Unlocated {
+        rule,
+        directory,
+        matched,
+        message,
+    } = unlocated;
+    let located = match rule.locator() {
+        None => None,
+        Some(locator) => {
+            let key = rule.rule().language().key();
+            let inputs = directory
+                .files()
+                .iter()
+                .filter(|file| {
+                    file.language().key() == key && matched.iter().any(|path| path == file.path())
+                })
+                .map(|file| read_input(file, sources))
+                .collect::<Result<Vec<_>, _>>()?;
+            locator.execute(inputs).matches.iter().try_fold(
+                None,
+                |best: Option<(RelPath, Option<Range>)>, found| {
+                    let candidate = (
+                        relpath(&found.path)?,
+                        found.ranges.iter().map(Range::from).min(),
+                    );
+                    Ok::<_, GritlintError>(match best {
+                        Some(best) if best.0 <= candidate.0 => Some(best),
+                        _ => Some(candidate),
+                    })
+                },
+            )?
+        }
+    };
+    let location = match located {
+        Some((path, range)) => Location::new(path, range),
+        None => Location::new(matched.first().clone(), None),
+    };
+    Ok(Finding::new(
+        rule.rule().id().clone(),
+        location,
+        message,
+        rule.rule().guidance().clone(),
+    ))
 }
 
 pub fn executions(plan: &ScanPlan, sources: &Sources) -> Result<Vec<Execution>, GritlintError> {
@@ -221,49 +316,47 @@ fn count_of(step: &RuleStep) -> RuleCount {
     RuleCount::new(step.rule.rule().id().clone(), evaluated)
 }
 
-fn run_task(task: &Task<'_>, sources: &Sources) -> Result<TaskRun, GritlintError> {
+fn run_task<'a>(task: &Task<'a>, sources: &Sources) -> Result<TaskRun<'a>, GritlintError> {
     let compiled = task.rule();
     let outcome = compiled
         .compiled()
         .execute(execution(task, sources)?.into_files());
     match task {
-        Task::Single { .. } => single_findings(compiled.rule(), &outcome, task.files()),
-        Task::Directory { directory, .. } => {
-            directory_findings(compiled.rule(), &outcome, directory)
+        Task::Single { .. } => Ok(TaskRun {
+            findings: outcome
+                .matches
+                .iter()
+                .try_fold(Vec::new(), |mut findings, matched| {
+                    findings.extend(single_findings(compiled.rule(), matched)?);
+                    Ok::<_, GritlintError>(findings)
+                })?,
+            unlocated: None,
+            diagnostic: first_diagnostic(&outcome, task.files()),
+        }),
+        Task::Directory { rule, directory } => {
+            let mut matched = outcome
+                .matches
+                .iter()
+                .map(|matched| relpath(&matched.path))
+                .collect::<Result<Vec<_>, _>>()?;
+            matched.sort_unstable();
+            matched.dedup();
+            Ok(TaskRun {
+                findings: Vec::new(),
+                unlocated: NonEmpty::new(matched).map(|matched| Unlocated {
+                    rule,
+                    directory,
+                    matched,
+                    message: format!(
+                        "{} (directory `{}`)",
+                        rule.rule().message(),
+                        directory.directory().map_or("", RelPath::as_str)
+                    ),
+                }),
+                diagnostic: first_diagnostic(&outcome, directory.files()),
+            })
         }
     }
-}
-
-fn single_findings(
-    rule: &ParsedRule,
-    outcome: &EngineOutcome,
-    batch: &[SelectedFile],
-) -> Result<TaskRun, GritlintError> {
-    let findings = outcome
-        .matches
-        .iter()
-        .map(|matched| finding_for(rule, matched))
-        .collect::<Result<Vec<_>, _>>()?;
-    Ok((findings, first_diagnostic(outcome, batch)))
-}
-
-fn directory_findings(
-    rule: &ParsedRule,
-    outcome: &EngineOutcome,
-    directory: &DirectoryBatch,
-) -> Result<TaskRun, GritlintError> {
-    let diagnostic = first_diagnostic(outcome, directory.files());
-    let message = format!(
-        "{} (directory `{}`)",
-        rule.message(),
-        directory.directory().map_or("", RelPath::as_str)
-    );
-    let finding = (!outcome.matches.is_empty())
-        .then(|| first_match(outcome, directory.files()))
-        .transpose()?
-        .flatten()
-        .map(|(path, line)| Finding::new(rule.id().clone(), path, line, message));
-    Ok((finding.into_iter().collect(), diagnostic))
 }
 
 fn first_diagnostic(outcome: &EngineOutcome, files: &[SelectedFile]) -> Option<Diagnostic> {
@@ -275,43 +368,35 @@ fn first_diagnostic(outcome: &EngineOutcome, files: &[SelectedFile]) -> Option<D
     })
 }
 
-fn first_match(
-    outcome: &EngineOutcome,
-    files: &[SelectedFile],
-) -> Result<Option<(RelPath, u32)>, GritlintError> {
-    let mut matched: Vec<&EngineMatch> = outcome.matches.iter().collect();
-    matched.sort_by(|left, right| left.path.cmp(&right.path));
-    let chosen = matched
-        .iter()
-        .find(|matched| !matched.ranges.is_empty())
-        .or_else(|| matched.first());
-    match chosen {
-        Some(matched) => {
-            let path = RelPath::new(&matched.path).map_err(|reason| GritlintError::RelPath {
-                path: matched.path.clone(),
-                reason,
-            })?;
-            Ok(Some((
-                path,
-                matched.ranges.first().map_or(1, |range| range.start_line),
-            )))
-        }
-        None => Ok(files.first().map(|file| (file.path().clone(), 1))),
-    }
+fn single_findings(
+    rule: &ParsedRule,
+    matched: &EngineMatch,
+) -> Result<Vec<Finding>, GritlintError> {
+    let path = relpath(&matched.path)?;
+    let finding = |range: Option<Range>| {
+        Finding::new(
+            rule.id().clone(),
+            Location::new(path.clone(), range),
+            rule.message().to_owned(),
+            rule.guidance().clone(),
+        )
+    };
+    Ok(if matched.ranges.is_empty() {
+        vec![finding(None)]
+    } else {
+        matched
+            .ranges
+            .iter()
+            .map(|range| finding(Some(Range::from(range))))
+            .collect()
+    })
 }
 
-fn finding_for(rule: &ParsedRule, matched: &EngineMatch) -> Result<Finding, GritlintError> {
-    let path = RelPath::new(&matched.path).map_err(|reason| GritlintError::RelPath {
-        path: matched.path.clone(),
+fn relpath(path: &str) -> Result<RelPath, GritlintError> {
+    RelPath::new(path).map_err(|reason| GritlintError::RelPath {
+        path: path.to_owned(),
         reason,
-    })?;
-    let line = matched.ranges.first().map_or(1, |range| range.start_line);
-    Ok(Finding::new(
-        rule.id().clone(),
-        path,
-        line,
-        rule.message().to_owned(),
-    ))
+    })
 }
 
 fn input_file(
@@ -319,19 +404,25 @@ fn input_file(
     file: &SelectedFile,
     sources: &Sources,
 ) -> Result<InputFile, GritlintError> {
-    let contents = if task.reads(file) {
-        sources
-            .text(file.path())
-            .ok_or_else(|| GritlintError::SourceUnread {
-                path: file.path().as_str().to_owned(),
-            })?
-            .to_owned()
+    if task.reads(file) {
+        read_input(file, sources)
     } else {
-        String::new()
-    };
+        Ok(InputFile {
+            path: file.path().as_str().to_owned(),
+            contents: String::new(),
+        })
+    }
+}
+
+fn read_input(file: &SelectedFile, sources: &Sources) -> Result<InputFile, GritlintError> {
+    let contents = sources
+        .text(file.path())
+        .ok_or_else(|| GritlintError::SourceUnread {
+            path: file.path().as_str().to_owned(),
+        })?;
     Ok(InputFile {
         path: file.path().as_str().to_owned(),
-        contents,
+        contents: contents.to_owned(),
     })
 }
 
@@ -358,19 +449,12 @@ fn participants(rule: &ParsedRule, files: &SelectedFiles, own_key: &str) -> Vec<
 }
 
 fn canonicalize_findings(mut findings: Vec<Finding>) -> Vec<Finding> {
-    findings.sort_by(|left, right| {
+    findings.sort_by_cached_key(|finding| {
         (
-            left.rule_id().as_string(),
-            left.path().as_str().to_owned(),
-            left.line(),
-            left.message().to_owned(),
+            finding.rule_id().as_string(),
+            finding.location().clone(),
+            finding.message().to_owned(),
         )
-            .cmp(&(
-                right.rule_id().as_string(),
-                right.path().as_str().to_owned(),
-                right.line(),
-                right.message().to_owned(),
-            ))
     });
     findings
 }
@@ -380,24 +464,71 @@ fn canonicalize_counts(mut counts: Vec<RuleCount>) -> Vec<RuleCount> {
     counts
 }
 
+#[must_use]
+pub fn expected_location_line(finding: &Finding) -> String {
+    let location = finding.location();
+    match location.range() {
+        None => format!("{} {}", finding.rule_id(), location.path()),
+        Some(range) => format!(
+            "{} {}:{}:{}-{}:{}",
+            finding.rule_id(),
+            location.path(),
+            range.start.line,
+            range.start.column,
+            range.end.line,
+            range.end.column
+        ),
+    }
+}
+
+static ASSERTED_RANGE: LazyLock<Option<Regex>> =
+    LazyLock::new(|| Regex::new(r":\d+:\d+-\d+:\d+$").ok());
+
+fn asserts_a_range(line: &str) -> bool {
+    ASSERTED_RANGE
+        .as_ref()
+        .is_some_and(|range| range.is_match(line))
+}
+
 fn fixture_results(rule: &FixtureRule, base: &Path) -> Vec<Result<CaseResult, GritlintError>> {
     let mut results = Vec::new();
     results.extend(
         rule.bad
             .is_empty()
-            .then(|| untested(rule, base, CaseKind::Bad)),
+            .then(|| unasserted(rule, base, CaseKind::Bad, "no known-bad case")),
     );
     results.extend(
         rule.good
             .is_empty()
-            .then(|| untested(rule, base, CaseKind::Good)),
+            .then(|| unasserted(rule, base, CaseKind::Good, "no known-good case")),
     );
+    let locator_unasserted = rule.rule.locate().is_some()
+        && !rule.bad.is_empty()
+        && !rule.bad.iter().any(|case| {
+            case.expected_locations
+                .iter()
+                .flatten()
+                .any(|line| asserts_a_range(line))
+        });
+    results.extend(locator_unasserted.then(|| {
+        unasserted(
+            rule,
+            base,
+            CaseKind::Bad,
+            "the rule declares `locate`, but no bad case's expected-locations.txt asserts a range",
+        )
+    }));
     results.extend(rule.bad.iter().map(|case| evaluate(rule, case, base)));
     results.extend(rule.good.iter().map(|case| evaluate(rule, case, base)));
     results
 }
 
-fn untested(rule: &FixtureRule, base: &Path, kind: CaseKind) -> Result<CaseResult, GritlintError> {
+fn unasserted(
+    rule: &FixtureRule,
+    base: &Path,
+    kind: CaseKind,
+    detail: &str,
+) -> Result<CaseResult, GritlintError> {
     let directory = kind.directory();
     let case =
         RelPath::from_root(base, &rule.fixture_directory.join(directory)).map_err(|reason| {
@@ -411,7 +542,7 @@ fn untested(rule: &FixtureRule, base: &Path, kind: CaseKind) -> Result<CaseResul
         case,
         kind,
         false,
-        format!("no known-{directory} case"),
+        detail.to_owned(),
     ))
 }
 
@@ -426,15 +557,24 @@ fn evaluate(
     let rules = NonEmpty::from_head(compiled, Vec::new());
     let plan = plan(&rules, &case.files);
     let outcome = scan(&plan, &case.sources)?;
-    let verdict = outcome.verdict();
-    let passed = match case.kind {
-        CaseKind::Bad => verdict == Verdict::Findings,
-        CaseKind::Good => verdict == Verdict::Clean,
-    };
-    let detail = match (case.kind, verdict) {
-        (CaseKind::Bad, Verdict::Findings) | (CaseKind::Good, Verdict::Clean) => String::new(),
-        (CaseKind::Bad, Verdict::Clean | Verdict::Refused)
-        | (CaseKind::Good, Verdict::Findings | Verdict::Refused) => describe(&outcome, case.kind),
+    let detail = match (case.kind, outcome.verdict()) {
+        (CaseKind::Bad, Verdict::Findings) => location_mismatch(&outcome, case),
+        (CaseKind::Good, Verdict::Clean) => None,
+        (CaseKind::Bad, Verdict::Clean | Verdict::Refused) => {
+            Some("the known-bad case produced no finding".to_owned())
+        }
+        (CaseKind::Good, Verdict::Findings | Verdict::Refused) => Some(
+            outcome
+                .findings()
+                .first()
+                .map_or_else(String::new, |finding| {
+                    format!(
+                        "the known-good case produced {}: {}",
+                        finding.location(),
+                        finding.message()
+                    )
+                }),
+        ),
     };
     let case_path =
         RelPath::from_root(base, &case.directory).map_err(|reason| GritlintError::RelPath {
@@ -445,24 +585,33 @@ fn evaluate(
         rule.rule.id().clone(),
         case_path,
         case.kind,
-        passed,
-        detail,
+        detail.is_none(),
+        detail.unwrap_or_default(),
     ))
 }
 
-fn describe(outcome: &Outcome, kind: CaseKind) -> String {
-    match kind {
-        CaseKind::Bad => "the known-bad case produced no finding".to_owned(),
-        CaseKind::Good => outcome
-            .findings()
-            .first()
-            .map_or_else(String::new, |finding| {
+fn location_mismatch(outcome: &Outcome, case: &FixtureCase) -> Option<String> {
+    let mut reported: Vec<String> = outcome
+        .findings()
+        .iter()
+        .map(expected_location_line)
+        .collect();
+    reported.sort_unstable();
+    match &case.expected_locations {
+        None => Some(format!(
+            "commits no expected-locations.txt; it reports: {}",
+            reported.join("; ")
+        )),
+        Some(expected) => {
+            let mut expected = expected.clone();
+            expected.sort_unstable();
+            (expected != reported).then(|| {
                 format!(
-                    "the known-good case produced {}:{}: {}",
-                    finding.path(),
-                    finding.line(),
-                    finding.message()
+                    "reported locations differ from expected-locations.txt: expected {}; reported {}",
+                    expected.join("; "),
+                    reported.join("; ")
                 )
-            }),
+            })
+        }
     }
 }

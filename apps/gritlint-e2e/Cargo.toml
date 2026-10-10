@@ -1,0 +1,19 @@
+[package]
+name = "gritlint-e2e"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+description = "An agent consumer of `gritlint check --format json`, run against the sandboxed binary."
+publish = false
+
+[[bin]]
+name = "gritlint-e2e"
+path = "src/main.rs"
+
+[dependencies]
+serde_json.workspace = true
+
+[lints]
+workspace = true

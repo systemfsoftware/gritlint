@@ -28,7 +28,53 @@ everyone in the workspace (pnpm#3960). `scripts/tools/gritlint/sync-version.ts
 only; they exist on npm, never in the repository.
 
 `configuration_schema.json` in this package is the JSON Schema for
-`gritlint.json`, generated from the CLI's config types.
+`gritlint.json`, generated from the CLI's config types. `report_schema.json` is
+the JSON Schema for `gritlint check --format json` (`gritlint schema --report`).
+
+## Rule files
+
+Every rule file, bundled or listed under `rules` in `gritlint.json`, opens with
+a `---` block of single-line `key: value` pairs:
+
+```grit
+---
+reasonCode: missing-provenance
+nextAction: Set publishConfig.provenance to true.
+locate: `"provenance": $value` where { $value <: not `true` }
+---
+language json
+...
+```
+
+- `reasonCode` (required) is lowercase kebab-case, stable for the rule, so an
+  agent can act on it.
+- `nextAction` (required) is one imperative sentence: what to change.
+- `locate` (optional) is a GritQL pattern in the rule's language. A multifile
+  rule's match has no range of its own; after the scan, `locate` runs over the
+  files the match joined, in path order, and the finding takes the first range
+  it reports. When it matches nothing, the finding names the first matched file
+  with no range.
+
+A missing required key, an unknown or repeated key, or a `reasonCode` that is
+not kebab-case refuses the run with exit 2, naming the file and the key.
+
+`gritlint test` runs each rule's `fixtures/<rule>/bad/*` and `good/*` cases.
+Every bad case commits `expected-locations.txt`, one line per finding:
+`<ruleId> <path>` or `<ruleId> <path>:<line>:<column>-<line>:<column>`, and the
+reported locations must equal it. A rule that declares `locate` needs at least
+one bad case asserting a range.
+
+## Output formats
+
+`gritlint check --format <format>`; exit 0 clean, 1 findings, 2 refused.
+
+| Format | Output |
+| --- | --- |
+| `human` (default) | every finding and the per-rule counts |
+| `json` | `{ schemaVersion: 1, findings, summary }`; each finding carries `ruleId`, `reasonCode`, `nextAction`, `message` and a `location` (`path`, and a one-based `range` when the engine reported one) |
+| `concise` | at most 20 findings of at most 200 bytes a line, the count of the rest, and the verdict |
+| `github` | one `::error` workflow command per finding, with `file`, the range when present, and the rule and reason as `title` |
+| `github-summary` | Markdown for `$GITHUB_STEP_SUMMARY`: the verdict and at most 100 findings |
 
 ## Releasing
 

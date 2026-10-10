@@ -1,3 +1,9 @@
+---
+reasonCode: tsdown-exports-misconfigured
+nextAction: Declare `exports: { devExports: '<scope>/source', customExports: injectTypes }` and delete any `clean: false`.
+locate: or { `clean: false`, `devExports: $value` where { $value <: not condition() }, `exports: $exports` where { $exports <: `{ $first, $... }`, $exports <: or { not contains `customExports: $_`, not contains `devExports: $_` } } }
+---
+
 # tsdown config: a named source condition, the hook, and cleaning on
 
 The bundler config must own both export maps: `exports.devExports` names the

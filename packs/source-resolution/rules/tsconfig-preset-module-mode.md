@@ -1,3 +1,9 @@
+---
+reasonCode: preset-module-mode
+nextAction: Set the preset's `module` to `NodeNext`, `Node16` or `preserve`, or its `moduleResolution` to `Bundler`, `Node16` or `NodeNext`, and name the source condition in `customConditions` or leave the key out.
+locate: or { `"customConditions": $list` where { $list <: or { `[]`, `[$cond, $...]` where { $cond <: not condition() } } }, `"module": $mode` where { $mode <: not r"\"(?:[Nn]odeNext|[Nn]ode16|[Pp]reserve)\"", $program <: not contains `"moduleResolution": $resolution` where { $resolution <: r"\"(?:[Bb]undler|[Nn]ode16|[Nn]odeNext)\"" } } }
+---
+
 # tsconfig preset: a module mode that honours conditions, and no cleared condition
 
 Every in-tree tsconfig preset a project extends must resolve a NodeNext, Node16,

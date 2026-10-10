@@ -1,3 +1,9 @@
+---
+reasonCode: tsconfig-paths-self-name
+nextAction: Delete the `paths` entry that maps the package's own name and let the export map's condition resolve it.
+locate: `"paths": $_`
+---
+
 # tsconfig paths: never map the package's own published name
 
 No tsconfig may map the package's own published name through

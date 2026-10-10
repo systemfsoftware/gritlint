@@ -43,6 +43,14 @@ pub enum GritlintError {
         "rule `{path}` declares no GritQL language; add e.g. `language json` inside its grit block"
     )]
     RuleNoLanguage { path: PathBuf },
+    #[error("rule `{path}`: frontmatter key `{key}` {problem}")]
+    RuleFrontmatter {
+        path: PathBuf,
+        key: String,
+        problem: FrontmatterProblem,
+    },
+    #[error("rule `{path}` opens a `---` frontmatter block and never closes it")]
+    RuleFrontmatterUnclosed { path: PathBuf },
     #[error("rule id `{id}` is defined by both `{first}` and `{second}`")]
     RuleCollision {
         id: String,
@@ -82,4 +90,25 @@ pub enum GritlintError {
         #[source]
         source: serde_json::Error,
     },
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FrontmatterProblem {
+    Missing,
+    Repeated,
+    Unknown,
+    Empty,
+    NotKebabCase,
+}
+
+impl std::fmt::Display for FrontmatterProblem {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str(match self {
+            Self::Missing => "is missing",
+            Self::Repeated => "is repeated",
+            Self::Unknown => "is unknown; the keys are `reasonCode`, `nextAction` and `locate`",
+            Self::Empty => "has no value",
+            Self::NotKebabCase => "must be lowercase kebab-case, such as `missing-provenance`",
+        })
+    }
 }

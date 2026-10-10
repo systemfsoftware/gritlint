@@ -1,3 +1,9 @@
+---
+reasonCode: api-tsconfig-keeps-condition
+nextAction: Set `compilerOptions.customConditions` to `[]` in `tsconfig.api.json` and point `compiler.tsconfigFilePath` at that file.
+locate: `"customConditions": $value` where { $value <: not `[]` }
+---
+
 # api-extractor: point at a tsconfig that clears the source condition
 
 When `api-extractor.json` exists, its `compiler.tsconfigFilePath` must name a

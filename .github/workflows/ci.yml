@@ -110,4 +110,8 @@ jobs:
       - name: Sandboxed check fails on planted violations and passes once fixed
         run: sh scripts/tools/gate-journey.sh "$OUT/bin/gritlint"
       - name: This repository's conventions
-        run: PATH="$OUT/bin:$PATH" ./bin/gritlint check
+        run: |
+          export PATH="$OUT/bin:$PATH"
+          # The summary is the readable list; the annotations run gates the step.
+          ./bin/gritlint check --format github-summary >> "$GITHUB_STEP_SUMMARY" || :
+          ./bin/gritlint check --format github

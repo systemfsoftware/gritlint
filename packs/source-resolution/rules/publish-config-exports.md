@@ -1,3 +1,9 @@
+---
+reasonCode: publish-exports-not-dist
+nextAction: Make the `customExports` hook turn every publish entry into `{ types, default }` without the source condition, then rebuild; never hand-edit `publishConfig.exports`.
+locate: or { `$subpath: $entry` where { $subpath <: or { `"."`, includes "./" }, $subpath <: not includes "./package.json", $entry <: `"$bare"`, $entry <: within `"publishConfig": $_` }, `$subpath: $entry` where { $subpath <: or { `"."`, includes "./" }, $entry <: contains `$cond: $_` where { $cond <: condition() }, $entry <: within `"publishConfig": $_` }, `"publishConfig": $publish` where { $publish <: not contains `"exports": $_` } }
+---
+
 # Published export map: dist-only, every entry an object
 
 A consumer-safe package publishes `publishConfig.exports`, the map `pnpm pack`

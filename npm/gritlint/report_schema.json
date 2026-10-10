@@ -1,0 +1,170 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "JsonReport",
+  "description": "The report `gritlint check --format json` prints.",
+  "type": "object",
+  "properties": {
+    "schemaVersion": {
+      "description": "Raised when a change to this document is incompatible.",
+      "type": "integer",
+      "format": "uint32",
+      "minimum": 0,
+      "const": 1
+    },
+    "findings": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/JsonFinding"
+      }
+    },
+    "summary": {
+      "$ref": "#/$defs/JsonSummary"
+    }
+  },
+  "required": [
+    "schemaVersion",
+    "findings",
+    "summary"
+  ],
+  "$defs": {
+    "JsonFinding": {
+      "type": "object",
+      "properties": {
+        "ruleId": {
+          "description": "`<pack>/<rule>`, or `local/<rule>` for a consumer rule file.",
+          "type": "string"
+        },
+        "reasonCode": {
+          "description": "Lowercase kebab-case; stable for a rule, so an agent can act on it.",
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        },
+        "nextAction": {
+          "description": "One imperative sentence: what to change.",
+          "type": "string"
+        },
+        "location": {
+          "$ref": "#/$defs/JsonLocation"
+        }
+      },
+      "required": [
+        "ruleId",
+        "reasonCode",
+        "message",
+        "nextAction",
+        "location"
+      ]
+    },
+    "JsonLocation": {
+      "type": "object",
+      "properties": {
+        "path": {
+          "description": "Relative to the scan root, `/`-separated.",
+          "type": "string"
+        },
+        "range": {
+          "description": "The violating node as the engine reported it; null when the violation is an absent key, so the location is the file alone.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/JsonRange"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "path"
+      ]
+    },
+    "JsonRange": {
+      "type": "object",
+      "properties": {
+        "start": {
+          "$ref": "#/$defs/JsonPosition"
+        },
+        "end": {
+          "$ref": "#/$defs/JsonPosition"
+        }
+      },
+      "required": [
+        "start",
+        "end"
+      ]
+    },
+    "JsonPosition": {
+      "description": "One-based, as GritQL reports positions.",
+      "type": "object",
+      "properties": {
+        "line": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        },
+        "column": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "line",
+        "column"
+      ]
+    },
+    "JsonSummary": {
+      "type": "object",
+      "properties": {
+        "filesSelected": {
+          "type": "integer",
+          "format": "uint",
+          "minimum": 0
+        },
+        "findings": {
+          "type": "integer",
+          "format": "uint",
+          "minimum": 0
+        },
+        "rules": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/JsonRuleCount"
+          }
+        },
+        "zeroFileRules": {
+          "description": "Enabled rules that evaluated no file.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "required": [
+        "filesSelected",
+        "findings",
+        "rules",
+        "zeroFileRules"
+      ]
+    },
+    "JsonRuleCount": {
+      "type": "object",
+      "properties": {
+        "ruleId": {
+          "type": "string"
+        },
+        "files": {
+          "type": "integer",
+          "format": "uint",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "ruleId",
+        "files"
+      ]
+    }
+  }
+}

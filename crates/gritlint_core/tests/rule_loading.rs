@@ -10,13 +10,17 @@
 use gritlint_core::GritlintError;
 use gritlint_core::decode;
 use gritlint_core::domain::{CompiledRule, NonEmpty, Pack, PackName, ParamName, RuleSource};
+use gritlint_core::error::FrontmatterProblem;
 use gritlint_core::shell;
 use std::collections::BTreeMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 
+const FRONTMATTER: &str = "---\nreasonCode: test-reason\nnextAction: Fix it.\n---\n";
+
 const REACT_RULE: &str = r"---
-title: A frontmatter title is not the title
+reasonCode: unpinned-react
+nextAction: Pin the react dependency.
 ---
 
 # React dependency
@@ -29,7 +33,11 @@ condition()
 ```
 ";
 
-const PLAIN_RULE: &str = r#"language json
+const PLAIN_RULE: &str = r#"---
+reasonCode: test-reason
+nextAction: Fix it.
+---
+language json
 `"react": $_`
 "#;
 
@@ -166,7 +174,7 @@ fn a_markdown_rule_without_a_grit_block_names_the_file() {
         temp.path(),
         "pack-one",
         &[],
-        &[("bad.md", "# Title\n\nNo block.\n")],
+        &[("bad.md", &format!("{FRONTMATTER}# Title\n\nNo block.\n"))],
     );
 
     let error = error_of(decode::load_rules(
@@ -249,7 +257,10 @@ fn a_pack_enabled_without_a_required_parameter_names_the_parameter() {
 fn a_rule_calling_an_undefined_pattern_fails_to_compile_with_its_id() {
     let temp = tempfile::tempdir().expect("temp dir");
     let consumer = temp.path().join("broken.grit");
-    write(&consumer, "language json\nmissing_helper()\n");
+    write(
+        &consumer,
+        &format!("{FRONTMATTER}language json\nmissing_helper()\n"),
+    );
 
     let error = error_of(decode::load_rules(
         &[],
@@ -296,9 +307,14 @@ fn a_sibling_pattern_in_the_same_pack_is_callable() {
         &[
             (
                 "helper.grit",
-                "language json\npattern react_dependency() { `\"react\": $_` }\nreact_dependency()\n",
+                &format!(
+                    "{FRONTMATTER}language json\npattern react_dependency() {{ `\"react\": $_` }}\nreact_dependency()\n"
+                ),
             ),
-            ("uses.grit", "language json\nreact_dependency()\n"),
+            (
+                "uses.grit",
+                &format!("{FRONTMATTER}language json\nreact_dependency()\n"),
+            ),
         ],
     );
 
@@ -311,4 +327,68 @@ fn a_sibling_pattern_in_the_same_pack_is_callable() {
     .expect("a rule may call its sibling pattern");
 
     assert_eq!(ids(&rules), ["pack-one/helper", "pack-one/uses"]);
+}
+
+#[test]
+fn a_rule_without_valid_frontmatter_refuses_naming_the_file_and_the_key() {
+    let body = "language json\n`\"react\": $_`\n";
+    let cases = [
+        (
+            "missing-reason",
+            "---\nnextAction: Fix it.\n---\n",
+            "reasonCode",
+            FrontmatterProblem::Missing,
+        ),
+        (
+            "missing-action",
+            "---\nreasonCode: some-reason\n---\n",
+            "nextAction",
+            FrontmatterProblem::Missing,
+        ),
+        ("no-block", "", "reasonCode", FrontmatterProblem::Missing),
+        (
+            "repeated",
+            "---\nreasonCode: one\nreasonCode: two\nnextAction: Fix it.\n---\n",
+            "reasonCode",
+            FrontmatterProblem::Repeated,
+        ),
+        (
+            "unknown",
+            "---\nreasonCode: one\nnextAction: Fix it.\nlocation: `\"react\": $_`\n---\n",
+            "location",
+            FrontmatterProblem::Unknown,
+        ),
+        (
+            "malformed",
+            "---\nreasonCode: Bad_Code\nnextAction: Fix it.\n---\n",
+            "reasonCode",
+            FrontmatterProblem::NotKebabCase,
+        ),
+    ];
+    for (name, frontmatter, key, problem) in cases {
+        let temp = tempfile::tempdir().expect("temp dir");
+        let consumer = temp.path().join(format!("{name}.grit"));
+        write(&consumer, &format!("{frontmatter}{body}"));
+
+        let error = error_of(decode::load_rules(
+            &[],
+            &BTreeMap::new(),
+            sources(&[consumer]),
+            Path::new("gritlint.json"),
+        ));
+
+        assert!(
+            matches!(
+                &error,
+                GritlintError::RuleFrontmatter { key: refused, problem: found, .. }
+                    if refused == key && *found == problem
+            ),
+            "{name}: {error}"
+        );
+        let message = error.to_string();
+        assert!(
+            message.contains(&format!("{name}.grit")) && message.contains(key),
+            "{name}: {message}"
+        );
+    }
 }

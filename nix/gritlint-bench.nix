@@ -1,8 +1,9 @@
-# Times PR1's gritlint against this build on a pinned public corpus and fails
-# when the two reports, the current build's single-threaded report, or the
-# in-process per-phase run differ. The per-phase run times gritlint_core inside
-# the bench, so the bench builds with the release profile over gritlint's own
-# release dependency artifacts.
+# Times PR1's gritlint against this build on a pinned public corpus. It fails
+# when this build's exit code or findings per rule differ from PR1's, or when
+# this build's reports (parallel, single-threaded, and the in-process per-phase
+# run) are not byte-identical to each other. The per-phase run times
+# gritlint_core inside the bench, so the bench builds with the release profile
+# over gritlint's own release dependency artifacts.
 {
   lib,
   runCommand,

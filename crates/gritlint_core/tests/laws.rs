@@ -8,12 +8,13 @@
 use gritlint_core::decide;
 use gritlint_core::decode;
 use gritlint_core::domain::{
-    Finding, Language, Outcome, ParsedRule, RelPath, RuleCount, RuleId, RuleName, RuleSource,
-    SelectedFile, SourcePath, Verdict,
+    Finding, Guidance, Language, Location, Outcome, ParsedRule, Position, Range, ReasonCode,
+    RelPath, RuleCount, RuleId, RuleName, RuleSource, SelectedFile, SourcePath, Verdict,
 };
 use gritlint_core::encode;
 use proptest::prelude::*;
 use std::path::PathBuf;
+use std::sync::Arc;
 
 fn rel_path() -> impl Strategy<Value = String> {
     prop::collection::vec("[a-z0-9_-]{1,8}", 1..5).prop_map(|segments| segments.join("/"))
@@ -29,7 +30,7 @@ fn pattern() -> impl Strategy<Value = String> {
 
 fn rule_with(pattern: &str) -> ParsedRule {
     let body = format!(
-        "language json\nmultifile {{\n  file($name, $body) where {{ $name <: r\"{pattern}\" }}\n}}\n"
+        "---\nreasonCode: generated\nnextAction: Fix it.\n---\nlanguage json\nmultifile {{\n  file($name, $body) where {{ $name <: r\"{pattern}\" }}\n}}\n"
     );
     let source = RuleSource::new(SourcePath::new(PathBuf::from("generated.grit")), body);
     decode::parse_rule(None, &source).expect("the generated rule parses")
@@ -40,19 +41,45 @@ fn selected(path: &str) -> SelectedFile {
     SelectedFile::new(language, RelPath::new(path).expect("a normalized path"))
 }
 
+fn guidance() -> impl Strategy<Value = Arc<Guidance>> {
+    ("[a-z]{1,8}(-[a-z0-9]{1,8}){0,3}", "[a-zA-Zé:,%\n ]{0,80}").prop_map(|(code, action)| {
+        Arc::new(Guidance::new(
+            ReasonCode::new(&code).expect("a generated kebab-case code"),
+            action,
+        ))
+    })
+}
+
+fn range() -> impl Strategy<Value = Option<Range>> {
+    prop::option::of((1u32..500, 1u32..200, 0u32..3, 1u32..200).prop_map(
+        |(line, column, extra, end_column)| Range {
+            start: Position { line, column },
+            end: Position {
+                line: line + extra,
+                column: end_column,
+            },
+        },
+    ))
+}
+
+fn hostile_path() -> impl Strategy<Value = String> {
+    prop::collection::vec("[a-z0-9_:,%é-]{1,40}", 1..10).prop_map(|segments| segments.join("/"))
+}
+
 fn finding() -> impl Strategy<Value = Finding> {
     (
         prop_oneof![Just("alpha"), Just("beta"), Just("local")],
-        rel_path(),
-        0u32..10,
-        "[a-z ]{0,8}",
+        prop_oneof![rel_path(), hostile_path()],
+        range(),
+        "[a-zA-Zé:,%|\r\n ]{0,300}",
+        guidance(),
     )
-        .prop_map(|(rule, path, line, message)| {
+        .prop_map(|(rule, path, range, message, guidance)| {
             Finding::new(
                 RuleId::local(RuleName::new(rule)),
-                RelPath::new(&path).expect("a normalized path"),
-                line,
+                Location::new(RelPath::new(&path).expect("a normalized path"), range),
                 message,
+                guidance,
             )
         })
 }
@@ -146,4 +173,91 @@ proptest! {
         prop_assert!(RelPath::new(&trailing).is_err());
         prop_assert!(RelPath::new(&leading).is_err());
     }
+
+    #[test]
+    fn concise_output_stays_within_its_budget(
+        findings in prop::collection::vec(finding(), 0..40),
+        counts in prop::collection::vec(rule_count(), 0..4),
+        files_selected in 0usize..5,
+    ) {
+        let shown = findings.len().min(encode::CONCISE_FINDINGS);
+        let rest = findings.len() - shown;
+        let outcome = decide::canonicalize(findings, counts, files_selected);
+        let rendered = encode::render_concise(&outcome);
+
+        let lines: Vec<&str> = rendered.lines().collect();
+        prop_assert!(lines.len() <= encode::CONCISE_FINDINGS + 2, "{}", lines.len());
+        prop_assert!(rendered.len() <= 4_500, "{}", rendered.len());
+        for line in &lines {
+            prop_assert!(line.len() <= encode::CONCISE_LINE_BYTES, "{} bytes: {line}", line.len());
+        }
+        let expected_lines = shown + usize::from(rest > 0) + 1;
+        prop_assert_eq!(lines.len(), expected_lines);
+        if rest > 0 {
+            let remainder = format!(" and {rest} more;");
+            prop_assert!(lines[shown].contains(&remainder), "{}", lines[shown]);
+        }
+    }
+
+    #[test]
+    fn github_output_is_one_parseable_command_per_finding(
+        findings in prop::collection::vec(finding(), 0..10),
+    ) {
+        let outcome = decide::canonicalize(findings, Vec::new(), 1);
+        let rendered = encode::render_github(&outcome);
+
+        let lines: Vec<&str> = rendered.split('\n').filter(|line| !line.is_empty()).collect();
+        prop_assert_eq!(lines.len(), outcome.findings().len());
+        for (line, finding) in lines.iter().zip(outcome.findings()) {
+            prop_assert!(!line.contains('\r'));
+            let command = line.strip_prefix("::error ").expect("an error command");
+            let (properties, _message) = command.split_once("::").expect("a message separator");
+            let keys: Vec<&str> = properties
+                .split(',')
+                .map(|pair| pair.split_once('=').expect("key=value").0)
+                .collect();
+            let expected: &[&str] = if finding.location().range().is_some() {
+                &["file", "line", "col", "endLine", "endColumn", "title"]
+            } else {
+                &["file", "title"]
+            };
+            prop_assert_eq!(keys, expected);
+        }
+    }
+
+    #[test]
+    fn escaped_values_carry_no_command_delimiters_and_round_trip(text in "[a-zé%:,\r\n ]{0,40}") {
+        let data = encode::escape_data(&text);
+        let property = encode::escape_property(&text);
+
+        prop_assert!(!data.contains(['\r', '\n']), "{data:?}");
+        prop_assert!(!property.contains(['\r', '\n', ':', ',']), "{property:?}");
+        prop_assert_eq!(unescape(&data)?, text.clone());
+        prop_assert_eq!(unescape(&property)?, text);
+    }
+}
+
+fn unescape(escaped: &str) -> Result<String, TestCaseError> {
+    let mut pieces = escaped.split('%');
+    let head = pieces.next().unwrap_or_default().to_owned();
+    pieces.try_fold(head, |mut out, piece| {
+        let (code, rest) = piece
+            .get(..2)
+            .zip(piece.get(2..))
+            .ok_or_else(|| TestCaseError::fail(format!("a bare % in {escaped:?}")))?;
+        out.push(match code {
+            "25" => '%',
+            "0D" => '\r',
+            "0A" => '\n',
+            "3A" => ':',
+            "2C" => ',',
+            _ => {
+                return Err(TestCaseError::fail(format!(
+                    "%{code} is no escape in {escaped:?}"
+                )));
+            }
+        });
+        out.push_str(rest);
+        Ok(out)
+    })
 }

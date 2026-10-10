@@ -11,7 +11,7 @@ use gritlint_core::GritlintError;
 use gritlint_core::decide;
 use gritlint_core::decode;
 use gritlint_core::domain::{
-    NonEmpty, Outcome, ParsedRule, RuleSource, ScanPlan, SourcePath, Sources,
+    NonEmpty, Outcome, ParsedRule, Position, Range, RuleSource, ScanPlan, SourcePath, Sources,
 };
 use gritlint_core::encode;
 use gritlint_core::shell;
@@ -51,18 +51,28 @@ fn write(base: &Path, path: &str, contents: &str) {
     fs::write(target, contents).expect("write the file");
 }
 
+const FRONTMATTER: &str = "---\nreasonCode: test-reason\nnextAction: Fix it.\n---\n";
+
 fn rule(name: &str, body: &str) -> ParsedRule {
     let source = RuleSource::new(
         SourcePath::new(PathBuf::from(format!("{name}.grit"))),
-        body.to_owned(),
+        format!("{FRONTMATTER}{body}"),
     );
     decode::parse_rule(None, &source).expect("parse the rule")
+}
+
+fn located_rule(name: &str, body: &str, locate: &str) -> ParsedRule {
+    let source = RuleSource::new(
+        SourcePath::new(PathBuf::from(format!("{name}.grit"))),
+        format!("---\nreasonCode: test-reason\nnextAction: Fix it.\nlocate: {locate}\n---\n{body}"),
+    );
+    decode::parse_rule(None, &source).expect("parse the located rule")
 }
 
 fn markdown_rule(name: &str, description: &str, body: &str) -> ParsedRule {
     let source = RuleSource::new(
         SourcePath::new(PathBuf::from(format!("{name}.md"))),
-        format!("# {name}\n\n{description}\n\n```grit\n{body}\n```\n"),
+        format!("{FRONTMATTER}\n# {name}\n\n{description}\n\n```grit\n{body}\n```\n"),
     );
     decode::parse_rule(None, &source).expect("parse the markdown rule")
 }
@@ -217,8 +227,17 @@ fn a_violation_carries_the_rule_path_line_and_description() {
     assert_eq!(outcome.findings().len(), 1, "{outcome:#?}");
     let finding = &outcome.findings()[0];
     assert_eq!(finding.rule_id().as_string(), "local/no-console");
-    assert_eq!(finding.path().as_str(), "package.json");
-    assert_eq!(finding.line(), 3);
+    assert_eq!(finding.location().path().as_str(), "package.json");
+    assert_eq!(
+        finding.location().range(),
+        Some(&Range {
+            start: Position { line: 3, column: 3 },
+            end: Position {
+                line: 3,
+                column: 21
+            },
+        })
+    );
     assert_eq!(finding.message(), "Remove the debug console call.");
 }
 
@@ -256,7 +275,7 @@ fn no_enabled_pack_and_no_rule_path_is_an_instrument_error() {
 }
 
 #[test]
-fn json_output_holds_one_object_per_finding_and_a_summary() {
+fn json_output_is_the_versioned_envelope() {
     let temp = tempfile::tempdir().expect("temp dir");
     write(temp.path(), "a/package.json", "{\"react\": \"18\"}\n");
     write(temp.path(), "b/package.json", "{\"react\": \"19\"}\n");
@@ -265,13 +284,31 @@ fn json_output_holds_one_object_per_finding_and_a_summary() {
     let rendered = encode::render_json(&outcome).expect("render json");
     let parsed: serde_json::Value = serde_json::from_str(&rendered).expect("parseable json");
 
-    let findings = parsed["findings"].as_array().expect("a findings array");
-    assert_eq!(findings.len(), 2);
-    assert_eq!(findings[0]["rule"], "local/react");
-    assert_eq!(parsed["summary"]["findings"], 2);
-    assert_eq!(parsed["summary"]["files_selected"], 2);
-    assert_eq!(parsed["summary"]["rules"][0]["rule"], "local/react");
-    assert_eq!(parsed["summary"]["rules"][0]["files"], 2);
+    let finding = |path: &str| {
+        serde_json::json!({
+            "ruleId": "local/react",
+            "reasonCode": "test-reason",
+            "message": "react",
+            "nextAction": "Fix it.",
+            "location": {
+                "path": path,
+                "range": {"start": {"line": 1, "column": 2}, "end": {"line": 1, "column": 15}},
+            },
+        })
+    };
+    assert_eq!(
+        parsed,
+        serde_json::json!({
+            "schemaVersion": 1,
+            "findings": [finding("a/package.json"), finding("b/package.json")],
+            "summary": {
+                "filesSelected": 2,
+                "findings": 2,
+                "rules": [{"ruleId": "local/react", "files": 2}],
+                "zeroFileRules": [],
+            },
+        })
+    );
 }
 
 #[test]
@@ -324,7 +361,7 @@ fn a_multifile_rule_reports_one_finding_per_directory() {
         outcome
             .findings()
             .iter()
-            .map(|finding| finding.path().as_str().to_owned())
+            .map(|finding| finding.location().path().as_str().to_owned())
             .collect::<Vec<_>>(),
         ["a/package.json", "b/package.json"]
     );
@@ -370,7 +407,7 @@ fn a_single_file_rule_reports_each_match_at_its_file() {
         outcome
             .findings()
             .iter()
-            .map(|finding| finding.path().as_str().to_owned())
+            .map(|finding| finding.location().path().as_str().to_owned())
             .collect::<Vec<_>>(),
         ["a/package.json", "b/package.json"]
     );
@@ -387,7 +424,10 @@ fn a_non_utf8_file_no_rule_can_target_is_never_read() {
     let outcome = scan(temp.path(), &[rule("react", REACT_PAIR)], &[]).expect("scan");
 
     assert_eq!(outcome.findings().len(), 1, "{outcome:#?}");
-    assert_eq!(outcome.findings()[0].path().as_str(), "package.json");
+    assert_eq!(
+        outcome.findings()[0].location().path().as_str(),
+        "package.json"
+    );
 }
 
 #[test]
@@ -405,7 +445,10 @@ fn ignore_globs_drop_files_from_every_rule_batch() {
 
     assert_eq!(outcome.counts()[0].files(), 1, "{outcome:#?}");
     assert_eq!(outcome.findings().len(), 1);
-    assert_eq!(outcome.findings()[0].path().as_str(), "real.json");
+    assert_eq!(
+        outcome.findings()[0].location().path().as_str(),
+        "real.json"
+    );
 }
 
 const TSDOWN_PRESENCE_JOIN: &str = r#"language json
@@ -443,7 +486,10 @@ fn a_multifile_rule_joins_a_name_matched_file_of_another_language() {
         .expect("a name-only participant must not be parsed as the rule's language");
 
     assert_eq!(outcome.findings().len(), 1, "{outcome:#?}");
-    assert_eq!(outcome.findings()[0].path().as_str(), "pkg/package.json");
+    assert_eq!(
+        outcome.findings()[0].location().path().as_str(),
+        "pkg/package.json"
+    );
     assert_eq!(outcome.counts()[0].files(), 2, "{outcome:#?}");
 }
 
@@ -457,4 +503,81 @@ fn a_multifile_rule_pulls_in_only_the_other_language_files_its_names_match() {
 
     assert_eq!(outcome.findings().len(), 1, "{outcome:#?}");
     assert_eq!(outcome.counts()[0].files(), 1, "{outcome:#?}");
+}
+
+fn locations(outcome: &Outcome) -> Vec<String> {
+    outcome
+        .findings()
+        .iter()
+        .map(decide::expected_location_line)
+        .collect()
+}
+
+#[test]
+fn a_multifile_finding_goes_to_the_first_matched_file_its_locator_matches() {
+    let temp = tempfile::tempdir().expect("temp dir");
+    write(temp.path(), "a/package.json", "{\"vite\": \"1\"}\n");
+    write(
+        temp.path(),
+        "a/tsconfig.json",
+        "{\n  \"compilerOptions\": {}\n}\n",
+    );
+    let rule = located_rule("join", SIBLING_JOIN, r#"`"compilerOptions": $_`"#);
+
+    let outcome = scan(temp.path(), &[rule], &[]).expect("scan");
+
+    assert_eq!(
+        locations(&outcome),
+        ["local/join a/tsconfig.json:2:3-2:24"],
+        "the locator matches only the second matched file, at line 2"
+    );
+}
+
+#[test]
+fn a_multifile_locator_that_matches_nothing_leaves_the_first_matched_file_alone() {
+    let temp = tempfile::tempdir().expect("temp dir");
+    write(temp.path(), "a/package.json", "{\"vite\": \"1\"}\n");
+    write(
+        temp.path(),
+        "a/tsconfig.json",
+        "{\"compilerOptions\": {}}\n",
+    );
+    let rule = located_rule("join", SIBLING_JOIN, r#"`"absent": $_`"#);
+
+    let outcome = scan(temp.path(), &[rule], &[]).expect("scan");
+
+    assert_eq!(locations(&outcome), ["local/join a/package.json"]);
+    assert_eq!(outcome.findings()[0].location().range(), None);
+}
+
+#[test]
+fn a_single_file_rule_reports_every_node_it_matches_in_a_file() {
+    let temp = tempfile::tempdir().expect("temp dir");
+    write(
+        temp.path(),
+        "package.json",
+        "{\n  \"react\": \"18\",\n  \"peer\": {\"react\": \"19\"}\n}\n",
+    );
+
+    let outcome = scan(temp.path(), &[rule("react", REACT_PAIR)], &[]).expect("scan");
+
+    assert_eq!(
+        locations(&outcome),
+        [
+            "local/react package.json:2:3-2:16",
+            "local/react package.json:3:12-3:25",
+        ]
+    );
+}
+
+#[test]
+fn a_single_file_match_without_a_range_is_reported_at_its_file_alone() {
+    let temp = tempfile::tempdir().expect("temp dir");
+    write(temp.path(), "package.json", "{\"react\": \"18\"}\n");
+    let whole_file = "language json\nfile($name, $body) where { $name <: r\".*package\\.json\" }\n";
+
+    let outcome = scan(temp.path(), &[rule("whole-file", whole_file)], &[]).expect("scan");
+
+    assert_eq!(locations(&outcome), ["local/whole-file package.json"]);
+    assert_eq!(decide::exit_code(outcome.verdict()), 1);
 }

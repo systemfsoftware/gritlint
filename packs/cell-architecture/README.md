@@ -47,11 +47,10 @@ The pack takes no parameters.
   skipping the file, so such a `*.service.ts` fails the check. Separators fix
   the parse but a formatter set to omit semicolons strips them; an intersection
   of function types (`& (<A>(a: A) => A) & (...)`) parses and survives it.
-- **One finding per directory, at the first service module.** The rule is
-  multifile so that only `*.service.ts` modules are parsed; a single-file rule
-  parses every module of the language, and any unparseable one would stop the
-  scan. A multifile match is reported against the first file of its directory
-  batch, so when several `*.service.ts` modules share a directory the finding
-  names the alphabetically first of them at line 1, whichever one holds the
-  Layer. The verdict is exact; search that directory's service modules for the
-  Layer.
+- **One finding per directory, at the first Layer.** The rule is multifile so
+  that only `*.service.ts` modules are parsed; a single-file rule parses every
+  module of the language, and any unparseable one would stop the scan. A
+  multifile match has no range of its own, so the rule's `locate` pattern runs
+  over the directory's service modules in path order and the finding takes the
+  first Layer it reports. When several modules hold one, the finding names the
+  first; search that directory's other service modules too.

@@ -7,6 +7,8 @@
   craneLib,
   craneLibMsrv,
   gritlint,
+  # `packages.<system>.gritlint`: the journey reads what a consumer runs.
+  sandboxed,
 }:
 
 let
@@ -19,6 +21,16 @@ let
   msrvArgs = devArgs // {
     buildPhaseCargoCommand = "cargoWithProfile check --locked --workspace --all-targets";
   };
+
+  journey = craneLib.buildPackage (
+    devArgs
+    // {
+      pname = "gritlint-e2e";
+      cargoArtifacts = devArtifacts;
+      cargoExtraArgs = "--locked -p gritlint-e2e";
+      doCheck = false;
+    }
+  );
 in
 {
   gritlint-fmt = craneLib.cargoFmt {
@@ -51,10 +63,21 @@ in
     touch $out
   '';
 
+  gritlint-agent-journey = runCommand "gritlint-agent-journey" { } ''
+    mkdir journey
+    ${journey}/bin/gritlint-e2e ${sandboxed}/bin/gritlint "$PWD/journey"
+    touch $out
+  '';
+
   gritlint-schema = runCommand "gritlint-schema" { } ''
     ${unwrapped} schema > schema.json
     if ! diff -u ${../npm/gritlint/configuration_schema.json} schema.json; then
       echo "npm/gritlint/configuration_schema.json is stale: write \`gritlint schema\` over it" >&2
+      exit 1
+    fi
+    ${unwrapped} schema --report > report.json
+    if ! diff -u ${../npm/gritlint/report_schema.json} report.json; then
+      echo "npm/gritlint/report_schema.json is stale: write \`gritlint schema --report\` over it" >&2
       exit 1
     fi
     touch $out

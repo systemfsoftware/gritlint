@@ -266,6 +266,128 @@ impl fmt::Display for RelPath {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct ReasonCode(String);
+
+impl ReasonCode {
+    #[must_use]
+    pub fn new(raw: &str) -> Option<Self> {
+        let mut segments = raw.split('-');
+        let first = segments.next()?;
+        let first_ok = first.chars().next().is_some_and(|c| c.is_ascii_lowercase())
+            && first
+                .chars()
+                .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit());
+        let rest_ok = segments.all(|segment| {
+            !segment.is_empty()
+                && segment
+                    .chars()
+                    .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit())
+        });
+        (first_ok && rest_ok).then(|| Self(raw.to_owned()))
+    }
+
+    #[must_use]
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+impl fmt::Display for ReasonCode {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str(&self.0)
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Guidance {
+    reason_code: ReasonCode,
+    next_action: String,
+}
+
+impl Guidance {
+    #[must_use]
+    pub fn new(reason_code: ReasonCode, next_action: String) -> Self {
+        Self {
+            reason_code,
+            next_action,
+        }
+    }
+
+    #[must_use]
+    pub fn reason_code(&self) -> &ReasonCode {
+        &self.reason_code
+    }
+
+    #[must_use]
+    pub fn next_action(&self) -> &str {
+        &self.next_action
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct Position {
+    pub line: u32,
+    pub column: u32,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct Range {
+    pub start: Position,
+    pub end: Position,
+}
+
+impl From<&crate::engine::MatchRange> for Range {
+    fn from(range: &crate::engine::MatchRange) -> Self {
+        Self {
+            start: Position {
+                line: range.start_line,
+                column: range.start_column,
+            },
+            end: Position {
+                line: range.end_line,
+                column: range.end_column,
+            },
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct Location {
+    path: RelPath,
+    range: Option<Range>,
+}
+
+impl Location {
+    #[must_use]
+    pub fn new(path: RelPath, range: Option<Range>) -> Self {
+        Self { path, range }
+    }
+
+    #[must_use]
+    pub fn path(&self) -> &RelPath {
+        &self.path
+    }
+
+    #[must_use]
+    pub fn range(&self) -> Option<&Range> {
+        self.range.as_ref()
+    }
+}
+
+impl fmt::Display for Location {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match &self.range {
+            None => write!(formatter, "{}", self.path),
+            Some(range) => write!(
+                formatter,
+                "{}:{}:{}",
+                self.path, range.start.line, range.start.column
+            ),
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct Language {
     engine: TargetLanguage,
@@ -357,6 +479,8 @@ pub struct ParsedRule {
     targets: Vec<Regex>,
     params: BTreeMap<ParamName, String>,
     kind: RuleKind,
+    guidance: Arc<Guidance>,
+    locate: Option<String>,
 }
 
 impl ParsedRule {
@@ -370,7 +494,8 @@ impl ParsedRule {
         path: SourcePath,
         language: Language,
         targets: Vec<Regex>,
-        params: BTreeMap<ParamName, String>,
+        guidance: Guidance,
+        locate: Option<String>,
     ) -> Self {
         let kind = rule_kind(&body);
         Self {
@@ -382,8 +507,10 @@ impl ParsedRule {
             path,
             language,
             targets,
-            params,
+            params: BTreeMap::new(),
             kind,
+            guidance: Arc::new(guidance),
+            locate,
         }
     }
 
@@ -437,6 +564,16 @@ impl ParsedRule {
         self.kind
     }
 
+    #[must_use]
+    pub fn guidance(&self) -> &Arc<Guidance> {
+        &self.guidance
+    }
+
+    #[must_use]
+    pub fn locate(&self) -> Option<&str> {
+        self.locate.as_deref()
+    }
+
     pub(crate) fn with_params(&mut self, params: BTreeMap<ParamName, String>) {
         self.params = params;
     }
@@ -466,26 +603,39 @@ impl ParsedRule {
 pub struct CompiledRule {
     rule: ParsedRule,
     compiled: Arc<crate::engine::Compiled>,
+    locator: Option<Arc<crate::engine::Compiled>>,
 }
 
 impl CompiledRule {
     pub(crate) fn compile(rule: &ParsedRule, all: &[&ParsedRule]) -> Result<Self, GritlintError> {
-        let request = crate::engine::CompileRequest {
+        let mut request = crate::engine::CompileRequest {
             body: rule.body().to_owned(),
             library: rule.library_against(all),
             language: rule.language().engine(),
             parameters: rule.engine_parameters(),
         };
-        crate::engine::compile(&request)
-            .map(|compiled| Self {
-                rule: rule.clone(),
-                compiled: Arc::new(compiled),
-            })
-            .map_err(|error| GritlintError::RuleCompile {
-                id: rule.id().as_string(),
-                path: rule.path().as_path().to_owned(),
-                message: error.to_string(),
-            })
+        let compile = |request: &crate::engine::CompileRequest, what: &str| {
+            crate::engine::compile(request)
+                .map(Arc::new)
+                .map_err(|error| GritlintError::RuleCompile {
+                    id: rule.id().as_string(),
+                    path: rule.path().as_path().to_owned(),
+                    message: format!("{what}{error}"),
+                })
+        };
+        let compiled = compile(&request, "")?;
+        let locator = match rule.locate() {
+            Some(locate) => {
+                locate.clone_into(&mut request.body);
+                Some(compile(&request, "its `locate` pattern: ")?)
+            }
+            None => None,
+        };
+        Ok(Self {
+            rule: rule.clone(),
+            compiled,
+            locator,
+        })
     }
 
     #[must_use]
@@ -496,6 +646,11 @@ impl CompiledRule {
     #[must_use]
     pub fn compiled(&self) -> &crate::engine::Compiled {
         &self.compiled
+    }
+
+    #[must_use]
+    pub fn locator(&self) -> Option<&crate::engine::Compiled> {
+        self.locator.as_deref()
     }
 }
 
@@ -698,19 +853,24 @@ impl Execution {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Finding {
     rule_id: RuleId,
-    path: RelPath,
-    line: u32,
+    location: Location,
     message: String,
+    guidance: Arc<Guidance>,
 }
 
 impl Finding {
     #[must_use]
-    pub fn new(rule_id: RuleId, path: RelPath, line: u32, message: String) -> Self {
+    pub fn new(
+        rule_id: RuleId,
+        location: Location,
+        message: String,
+        guidance: Arc<Guidance>,
+    ) -> Self {
         Self {
             rule_id,
-            path,
-            line,
+            location,
             message,
+            guidance,
         }
     }
 
@@ -720,18 +880,18 @@ impl Finding {
     }
 
     #[must_use]
-    pub fn path(&self) -> &RelPath {
-        &self.path
-    }
-
-    #[must_use]
-    pub fn line(&self) -> u32 {
-        self.line
+    pub fn location(&self) -> &Location {
+        &self.location
     }
 
     #[must_use]
     pub fn message(&self) -> &str {
         &self.message
+    }
+
+    #[must_use]
+    pub fn guidance(&self) -> &Guidance {
+        &self.guidance
     }
 }
 
@@ -1053,6 +1213,7 @@ pub struct FixtureCase {
     pub(crate) files: SelectedFiles,
     pub(crate) sources: Sources,
     pub(crate) params: BTreeMap<ParamName, String>,
+    pub(crate) expected_locations: Option<Vec<String>>,
 }
 
 #[derive(Debug, Clone)]

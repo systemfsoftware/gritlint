@@ -1,3 +1,9 @@
+---
+reasonCode: typecheck-not-build-mode
+nextAction: Make the reference-only root's `typecheck` script `tsc -b` or `tsc --build`.
+locate: `"typecheck": $script` where { $script <: not includes "tsc -b", $script <: not includes "tsc --build" }
+---
+
 # typecheck build mode: a reference-only root must be built
 
 A reference-only `tsconfig.json` root (`files: []` plus `references`) typechecks

@@ -1,3 +1,9 @@
+---
+reasonCode: vitest-ssr-missing-condition
+nextAction: Import the shared `@systemfsoftware/vitest-config`, or set the source condition on both `resolve.conditions` and `ssr.resolve.conditions`.
+locate: `ssr: $ssr` where { $ssr <: not contains `conditions: [$cond, $...]` where { $cond <: condition() } }
+---
+
 # Vitest config: both condition pipelines, or the shared config
 
 A `vitest.config.ts` (or `.mts`) must set the

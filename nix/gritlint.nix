@@ -61,6 +61,7 @@ let
       ../Cargo.lock
       ../clippy.toml
       ../apps/gritlint
+      ../apps/gritlint-e2e
       ../crates/gritlint_core
       ../crates/gritlint_bench
       ../packs

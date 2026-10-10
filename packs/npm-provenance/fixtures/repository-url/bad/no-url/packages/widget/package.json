@@ -1,6 +1,9 @@
 {
   "name": "@acme/widget",
   "version": "1.0.0",
+  "bugs": {
+    "url": "https://github.com/acme/widgets/issues"
+  },
   "repository": {
     "type": "git",
     "directory": "packages/widget"
