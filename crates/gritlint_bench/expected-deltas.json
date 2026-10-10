@@ -1,0 +1,12 @@
+{
+  "schemaVersion": 1,
+  "deltas": [
+    {
+      "ruleId": "source-resolution/vitest-conditions",
+      "baselineCount": 1,
+      "expectedCount": 2,
+      "reason": "A root-level `vitest.config.ts` is now checked: the corpus's `vitest.config.ts:66:3-68:4` sets `resolve` without the source condition.",
+      "case": "source-resolution/fixtures/vitest-conditions/bad/root-only-ssr-conditions"
+    }
+  ]
+}
