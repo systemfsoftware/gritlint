@@ -51,8 +51,14 @@ Nix derivation hashes cover every input path. A wider `src` makes any file in it
 
 - Probe the dependency split before trusting it. Evaluate `.drvPath` of the vendor and of each dependency derivation in two scratch copies that differ by one source line. Every one must match.
 - Give each derivation in a crane pipeline the narrowest source that determines its output, not the package's `src`.
+- Re-check the vendor `hash` after any `Cargo.lock` change. A fixed-output path is named by its declared hash, so a store that already holds the old output never refetches, and a stale `hash` builds green locally. PR3's lock change passed every local build and failed both CI jobs on `cargo-deps-vendor-staging`. A CI store cache that restores that output would mask it the same way. Gate: this exits 1 on a stale hash and 0 after the re-pin:
+
+  ```sh
+  s=$(nix-store -q --requisites "$(nix eval --raw .#packages.x86_64-linux.gritlint-unwrapped.vendor.drvPath)" | awk '/cargo-deps-vendor-staging\.drv$/')
+  nix build --no-link --rebuild "$s^*"
+  ```
 - A related constraint from the same PR's CI store cache: a `file://` binary cache refuses `nix copy --no-recursive` of a path whose references it does not hold. A cache that starts from unsigned roots therefore still carries their full closures, including signed paths.
 
 ## Related Issues
 
-- `docs/plans/2026-10-10-0452-feat-gritlint-standalone-plan.md` R12, KTD10, KTD13, U5
+- `docs/plans/2026-10-10-0709-feat-gritlint-standalone-plan.md` R12, KTD10, KTD13, U5
