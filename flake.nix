@@ -88,6 +88,7 @@
               [ "$("$bin" --version)" = "gritlint ${gritlintVersion}" ]
               touch $out
             '';
+            # mutants.yml's mode, shard and resume decisions, from fixture JSON and a scratch git history.
             gritlint-mutants-plan = pkgs.runCommand "gritlint-mutants-plan" {
               nativeBuildInputs = [ pkgs.git pkgs.jq ];
             } ''

@@ -5,6 +5,10 @@ export LC_ALL=C
 readonly SHARD_CAPACITY=13
 readonly FULL_RUN_TRIGGERS=(.cargo/mutants.toml .github/workflows/mutants.yml)
 readonly OUTCOMES=(caught unviable missed timeout)
+readonly JQ_EXPECT_ARRAY='def expect_array($key; $what):
+  if (.[$key] | type) != "array" then
+    error("the \($what) response has no \($key): \(.message // "unexpected body")")
+  else . end;'
 
 die() {
   echo "mutants-plan: $*" >&2
@@ -12,10 +16,8 @@ die() {
 }
 
 green_sha() {
-  jq -r '
-    if (.workflow_runs | type) != "array" then
-      error("the runs response has no workflow_runs: \(.message // "unexpected body")")
-    else . end
+  jq -r "$JQ_EXPECT_ARRAY"'
+    expect_array("workflow_runs"; "runs")
     | [.workflow_runs[] | select(.head_branch == "main" and .event == "push" and .conclusion == "success")]
     | max_by(.created_at)
     | if . == null then empty
@@ -78,14 +80,12 @@ shards() {
     die "examine_globs in .cargo/mutants.toml selects no mutant"
   fi
   n=$(((count + SHARD_CAPACITY - 1) / SHARD_CAPACITY))
-  printf 'n=%s\nshards=[%s]\n' "$n" "$( ((n > 0)) && seq -s, 0 $((n - 1)))"
+  printf 'capacity=%s\nn=%s\nshards=[%s]\n' "$SHARD_CAPACITY" "$n" "$( ((n > 0)) && seq -s, 0 $((n - 1)))"
 }
 
 prior_runs() {
-  jq -r --argjson id "$2" --argjson attempt "$3" --arg branch "$4" --arg sha "$5" '
-    if (.workflow_runs | type) != "array" then
-      error("the runs response has no workflow_runs: \(.message // "unexpected body")")
-    else . end
+  jq -r --argjson id "$2" --argjson attempt "$3" --arg branch "$4" --arg sha "$5" "$JQ_EXPECT_ARRAY"'
+    expect_array("workflow_runs"; "runs")
     | .workflow_runs[]
     | select(.head_branch == $branch and .head_sha == $sha)
     | select((.id != $id and .status == "completed") or (.id == $id and $attempt > 1))
@@ -94,10 +94,8 @@ prior_runs() {
 }
 
 artifacts() {
-  jq -r '
-    if (.artifacts | type) != "array" then
-      error("the artifacts response has no artifacts: \(.message // "unexpected body")")
-    else . end
+  jq -r "$JQ_EXPECT_ARRAY"'
+    expect_array("artifacts"; "artifacts")
     | .artifacts[]
     | select((.expired | not) and (.name | test("^(mutants\\.out(-.*)?|mutants-plan-.*)$")))
     | "\(.id) \(.name)"
@@ -105,11 +103,11 @@ artifacts() {
 }
 
 union_of() {
-  local dir list
-  for dir in "${@:2}"; do
-    for list in $1; do
-      cat "$dir/$list.txt" 2>/dev/null || :
-    done
+  local list=$1 dir
+  shift
+  for dir in "$@"; do
+    [ -n "$dir" ] || continue
+    cat "$dir/$list.txt" 2>/dev/null || :
   done | sort -u
 }
 
@@ -120,7 +118,9 @@ merge() {
   for outcome in "${OUTCOMES[@]}"; do
     union_of "$outcome" "$@" > "$dest/$outcome.txt"
   done
-  union_of "${OUTCOMES[*]} previously_caught" "$@" > "$dest/previously_caught.txt"
+  for outcome in "${OUTCOMES[@]}" previously_caught; do
+    union_of "$outcome" "$@"
+  done | sort -u > "$dest/previously_caught.txt"
 }
 
 summary() {

@@ -40,9 +40,6 @@ jobs:
     env:
       GH_TOKEN: ${{ github.token }}
     outputs:
-      mode: ${{ steps.mode.outputs.mode }}
-      base: ${{ steps.mode.outputs.base }}
-      count: ${{ steps.list.outputs.count }}
       n: ${{ steps.list.outputs.n }}
       shards: ${{ steps.list.outputs.shards }}
       artifact: ${{ steps.list.outputs.artifact }}
@@ -52,13 +49,14 @@ jobs:
           persist-credentials: false
           fetch-depth: 0
       - uses: cachix/install-nix-action@13d8dd58da0234aa297dedd986986ccb8e7f3e24
-      - name: Offline cargo home from the vendor tree, jq from the locked nixpkgs
+      - name: Offline cargo home from the vendor tree
         run: |
           echo "CARGO_HOME=$RUNNER_TEMP/cargo-home" >> "$GITHUB_ENV"
           mkdir -p "$RUNNER_TEMP/cargo-home"
           cp "$(nix build --no-link --print-out-paths .#packages.x86_64-linux.gritlint-unwrapped.vendor)/config.toml" "$RUNNER_TEMP/cargo-home/"
-          nix shell --inputs-from . nixpkgs#jq --command sh -c 'dirname "$(command -v jq)"' >> "$GITHUB_PATH"
           $CARGO_MUTANTS --version
+      - name: jq from the locked nixpkgs
+        run: nix shell --inputs-from . nixpkgs#jq --command sh -c 'dirname "$(command -v jq)"' >> "$GITHUB_PATH"
 
       - name: Mode
         id: mode
@@ -100,26 +98,24 @@ jobs:
           BASE: ${{ steps.mode.outputs.base }}
           REASON: ${{ steps.mode.outputs.reason }}
         run: |
-          in_diff=()
           if [ "$MODE" = in-diff ]; then
             git diff "$BASE" HEAD -- '*.rs' > plan/mutants.diff
-            in_diff=(--in-diff plan/mutants.diff)
           fi
           total=$($CARGO_MUTANTS --workspace --list | wc -l)
           mkdir mutants.out
           cp plan/*.txt mutants.out/
-          $CARGO_MUTANTS --workspace --list --iterate "${in_diff[@]}" > plan/mutants.txt
-          rm -r mutants.out
+          $CARGO_MUTANTS --workspace --list --iterate $([ -f plan/mutants.diff ] && echo --in-diff plan/mutants.diff) > plan/mutants.txt
           count=$(wc -l < plan/mutants.txt)
+          shards=$($PLAN shards "$MODE" "$total" "$count")
           {
-            echo "count=$count"
             echo "artifact=mutants-plan-$GITHUB_RUN_ATTEMPT"
-            $PLAN shards "$MODE" "$total" "$count"
-          } | tee -a "$GITHUB_OUTPUT" > "$RUNNER_TEMP/list"
+            echo "$shards"
+          } >> "$GITHUB_OUTPUT"
+          eval "$(grep -E '^(capacity|n)=' <<<"$shards")"
           {
             echo "**Mode:** $MODE${BASE:+ from \`$BASE\`} ($REASON)"
             echo
-            echo "**Mutants:** $total listed, $count left to test after earlier runs at this commit, in $(grep '^n=' "$RUNNER_TEMP/list" | cut -d= -f2) shards of at most 13."
+            echo "**Mutants:** $total listed, $count left to test after earlier runs at this commit, in $n shards of at most $capacity."
             if [ -s "$RUNNER_TEMP/resumed.md" ]; then
               echo
               echo "**Resumed from:**"
@@ -164,24 +160,19 @@ jobs:
       - name: cargo mutants
         timeout-minutes: 7
         env:
-          MODE: ${{ needs.plan.outputs.mode }}
           SHARD: ${{ matrix.shard }}
           N: ${{ needs.plan.outputs.n }}
         run: |
           mkdir mutants.out
           cp plan/*.txt mutants.out/
-          in_diff=()
-          if [ "$MODE" = in-diff ]; then
-            in_diff=(--in-diff plan/mutants.diff)
-          fi
           status=0
-          $CARGO_MUTANTS --workspace --iterate --shard "$SHARD/$N" --sharding round-robin "${in_diff[@]}" || status=$?
+          $CARGO_MUTANTS --workspace --iterate --shard "$SHARD/$N" --sharding round-robin $([ -f plan/mutants.diff ] && echo --in-diff plan/mutants.diff) || status=$?
           echo "cargo mutants exited $status"
           $PLAN exit-ok "$status" || exit "$status"
 
       - name: Outcomes
         if: always()
-        run: $PLAN summary "$RUNNER_TEMP/none" mutants.out >> "$GITHUB_STEP_SUMMARY"
+        run: $PLAN summary "" mutants.out >> "$GITHUB_STEP_SUMMARY"
       - name: Upload mutants.out
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a

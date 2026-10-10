@@ -108,12 +108,13 @@ expect_refusal "mode: a dispatched base that is no commit is refused" "is not a 
 expect_refusal "mode: an unknown dispatch mode is refused" "unknown mode 'incremental'" \
   mode workflow_dispatch incremental "" "$A" "$H_rs"
 
-expect "shards: no mutant, no shard" "$(lines n=0 'shards=[]')" "${plan[@]}" shards in-diff 0 0
-expect "shards: one mutant, one shard" "$(lines n=1 'shards=[0]')" "${plan[@]}" shards in-diff 10 1
-expect "shards: a full shard is still one" "$(lines n=1 'shards=[0]')" "${plan[@]}" shards in-diff 10 13
-expect "shards: one past a shard is two" "$(lines n=2 'shards=[0,1]')" "${plan[@]}" shards in-diff 14 14
-expect "shards: the full list at fe886c5" "$(lines n=37 "shards=[$(seq -s, 0 36)]")" "${plan[@]}" shards full 475 475
-expect "shards: a warm full run with nothing left starts no shard" "$(lines n=0 'shards=[]')" \
+expect "shards: no mutant, no shard" "$(lines capacity=13 n=0 'shards=[]')" "${plan[@]}" shards in-diff 0 0
+expect "shards: one mutant, one shard" "$(lines capacity=13 n=1 'shards=[0]')" "${plan[@]}" shards in-diff 10 1
+expect "shards: a full shard is still one" "$(lines capacity=13 n=1 'shards=[0]')" "${plan[@]}" shards in-diff 10 13
+expect "shards: one past a shard is two" "$(lines capacity=13 n=2 'shards=[0,1]')" "${plan[@]}" shards in-diff 14 14
+expect "shards: the full list at fe886c5" "$(lines capacity=13 n=37 "shards=[$(seq -s, 0 36)]")" \
+  "${plan[@]}" shards full 475 475
+expect "shards: a warm full run with nothing left starts no shard" "$(lines capacity=13 n=0 'shards=[]')" \
   "${plan[@]}" shards full 475 0
 expect_refusal "shards: a full run that lists no mutant fails" "selects no mutant" "${plan[@]}" shards full 0 0
 
@@ -157,6 +158,11 @@ expect "summary: a name two shard attempts caught counts once; carried lists are
     '| --- | --- | --- |' '| caught | 2 | 0 |' '| unviable | 0 | 0 |' '| missed | 1 | 1 |' '| timeout | 0 | 0 |' \
     '' '### Missed' '' '```text' "$m3" "$m4" '```')" \
   "${plan[@]}" summary "$work/carried" "$work/s1" "$work/s2"
+expect "summary: a shard's own table carries nothing" \
+  "$(lines '| Outcome | Tested in this run | Carried from earlier runs at this commit |' \
+    '| --- | --- | --- |' '| caught | 1 | 0 |' '| unviable | 0 | 0 |' '| missed | 1 | 0 |' '| timeout | 0 | 0 |' \
+    '' '### Missed' '' '```text' "$m4" '```')" \
+  "${plan[@]}" summary "" "$work/s2"
 
 for status in 0 2 3; do
   expect "exit-ok: $status leaves the run green" "" "${plan[@]}" exit-ok "$status"
