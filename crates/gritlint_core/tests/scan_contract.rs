@@ -117,18 +117,26 @@ fn collect(root: &Path, dir: &Path, entries: &mut Vec<(String, String)>) {
 }
 
 #[test]
-fn a_target_file_that_fails_to_parse_names_the_file() {
+fn a_target_file_that_fails_to_parse_refuses_at_its_position_with_a_reason_code() {
     let temp = tempfile::tempdir().expect("temp dir");
-    write(temp.path(), "tsconfig.json", "{\"compilerOptions\": {");
+    write(temp.path(), "tsconfig.json", "{\n  \"strict\": true,,\n}\n");
 
     let error = scan(temp.path(), &[rule("json", REACT_PAIR)], &[])
         .expect_err("a malformed target file is an instrument error");
 
     assert!(
-        matches!(error, GritlintError::TargetParse { .. }),
-        "{error}"
+        matches!(
+            &error,
+            GritlintError::TargetParse { file, line: 2, column: 17, .. } if file == "tsconfig.json"
+        ),
+        "{error:?}"
     );
-    assert!(error.to_string().contains("tsconfig.json"), "{error}");
+    assert!(
+        error
+            .to_string()
+            .starts_with("tsconfig.json:2:17: target-does-not-parse: "),
+        "an agent reads the file, the position and the reason code from the line's head: {error}"
+    );
 }
 
 #[test]

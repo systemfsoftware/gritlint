@@ -1,6 +1,6 @@
 # gritlint, compiled from Cargo.lock with crane.
 #
-# Three facts about the pinned engine drive this file.
+# Four facts about the pinned engine drive this file.
 #
 # 1. Cargo.lock is the only place the biomejs/gritql rev appears; it is read
 #    out of the lock here for the engine checkout below.
@@ -16,6 +16,12 @@
 #    from outside its crate, which from `<vendor>/source-git-0/<crate>/src`
 #    is the vendor root. `vendor` copies those files there from a checkout
 #    of the pinned rev.
+# 4. The root Cargo.toml patches the engine's `tree-sitter-typescript` with
+#    `vendor/tree-sitter-typescript`, a path crate. crane's dummy source stubs
+#    every crate's sources, which leaves marzano-language without the
+#    grammar's functions in the dependency builds, so `common` copies the real
+#    crate back over the stub. It comes from its own store path, so a
+#    workspace edit does not rebuild the dependencies.
 #
 # The package links its dependencies with fat LTO, so it builds against
 # release-profile dependency artifacts; clippy, the tests and `cargo tree`
@@ -65,6 +71,7 @@ let
       ../crates/gritlint_core
       ../crates/gritlint_bench
       ../packs
+      ../vendor
     ];
   };
 
@@ -73,7 +80,7 @@ let
       root = ../.;
       fileset = ../Cargo.lock;
     };
-    hash = "sha256-nm7g1VO3kWYonOPQGFpeU40nw7GhiSQ6SWBJsOSpOpQ=";
+    hash = "sha256-x43QQozGB1fW+s3Y/kxWRTXUx5p89Sv72r9HUAMQKWg=";
   };
 
   # The registry crates are linked as they are; only the git crates need the
@@ -86,11 +93,20 @@ let
     substitute ${cargoDeps}/.cargo/config.toml $out/config.toml --subst-var-by vendor $out
   '';
 
+  grammar = lib.fileset.toSource {
+    root = ../vendor/tree-sitter-typescript;
+    fileset = ../vendor/tree-sitter-typescript;
+  };
+
   common = {
     pname = "gritlint";
     inherit version src;
     strictDeps = true;
     cargoVendorDir = vendor;
+    extraDummyScript = ''
+      rm -r $out/vendor/tree-sitter-typescript
+      cp -r --no-preserve=mode ${grammar} $out/vendor/tree-sitter-typescript
+    '';
   };
 
   cargoArtifacts = craneLib.buildDepsOnly (
