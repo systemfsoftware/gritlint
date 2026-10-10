@@ -14,40 +14,6 @@ permissions:
   contents: read
 
 jobs:
-  rust:
-    name: Rust gate
-    runs-on: ubuntu-latest
-    timeout-minutes: 45
-    env:
-      CARGO_NET_GIT_FETCH_WITH_CLI: "true"
-      CARGO_INCREMENTAL: "0"
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
-        with:
-          persist-credentials: false
-      - uses: cachix/install-nix-action@13d8dd58da0234aa297dedd986986ccb8e7f3e24
-      - name: Cargo cache
-        id: cargo-cache
-        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9
-        with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            target
-          key: cargo-${{ runner.os }}-${{ hashFiles('Cargo.lock', 'rust-toolchain.toml', 'flake.lock') }}
-          restore-keys: cargo-${{ runner.os }}-
-      - name: Rust gate
-        run: nix develop --command sh scripts/tools/gate-rust.sh
-      - name: Save the cargo cache
-        if: github.ref == 'refs/heads/main' && steps.cargo-cache.outputs.cache-hit != 'true'
-        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9
-        with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            target
-          key: ${{ steps.cargo-cache.outputs.cache-primary-key }}
-
   nix:
     name: Nix · ${{ matrix.system }}
     strategy:
@@ -62,6 +28,9 @@ jobs:
     timeout-minutes: 60
     env:
       SYSTEM: ${{ matrix.system }}
+    defaults:
+      run:
+        shell: bash
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
@@ -75,21 +44,31 @@ jobs:
           fi
           grep -q "gritlint's flake builds on x86_64-linux, aarch64-linux; x86_64-windows is not one of them" refused.log
 
-      - name: Sandboxed gritlint store path
-        id: closure
+      - name: Every flake output for this system
+        id: targets
         run: |
-          out="$(nix eval --raw ".#packages.$SYSTEM.gritlint.outPath")"
-          echo "OUT=$out" >> "$GITHUB_ENV"
-          echo "key=gritlint-closure-${out#/nix/store/}" >> "$GITHUB_OUTPUT"
-      - name: gritlint closure cache
-        id: closure-cache
+          kinds="$(nix eval --raw --impure --expr "let o = (builtins.getFlake (toString ./.)).outputs; in toString (builtins.filter (k: builtins.isAttrs o.\${k} && o.\${k} ? \"$SYSTEM\") (builtins.attrNames o))")"
+          for kind in $kinds; do
+            names="$(nix eval --raw ".#$kind.$SYSTEM" --apply 'set: toString (builtins.attrNames set)')"
+            for name in $names; do
+              echo ".#$kind.$SYSTEM.$name"
+            done
+          done > "$RUNNER_TEMP/targets"
+          cat "$RUNNER_TEMP/targets"
+          xargs -a "$RUNNER_TEMP/targets" -I{} nix eval --raw '{}.outPath' --apply 'p: p + "\n"' > "$RUNNER_TEMP/outputs"
+          echo "key=nix-store-$SYSTEM-$(sort "$RUNNER_TEMP/outputs" | sha256sum | cut -c1-32)" >> "$GITHUB_OUTPUT"
+          echo "OUT=$(nix eval --raw ".#packages.$SYSTEM.gritlint.outPath")" >> "$GITHUB_ENV"
+          echo "STORE_CACHE=$RUNNER_TEMP/nix-store" >> "$GITHUB_ENV"
+      - name: Nix store cache
+        id: store-cache
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9
         with:
-          path: ${{ runner.temp }}/gritlint-closure
-          key: ${{ steps.closure.outputs.key }}
-      - name: Load the cached closure
-        if: steps.closure-cache.outputs.cache-hit == 'true'
-        run: nix copy --no-check-sigs --from "file://$RUNNER_TEMP/gritlint-closure" "$OUT"
+          path: ${{ env.STORE_CACHE }}
+          key: ${{ steps.targets.outputs.key }}
+          restore-keys: nix-store-${{ matrix.system }}-
+      - name: Load the cached store paths
+        if: steps.store-cache.outputs.cache-matched-key != ''
+        run: xargs -a "$STORE_CACHE/paths" nix copy --no-check-sigs --from "file://$STORE_CACHE"
 
       - name: Let bwrap create user namespaces (ubuntu-24.04 AppArmor refuses them by default)
         run: |
@@ -97,26 +76,33 @@ jobs:
             sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
           fi
       - name: Build every flake output for this system
+        run: xargs -a "$RUNNER_TEMP/targets" nix build --no-link --print-build-logs
+
+      - name: Export the unsigned store paths
+        if: steps.store-cache.outputs.cache-hit != 'true'
         run: |
-          targets=()
-          kinds="$(nix eval --raw --impure --expr "let o = (builtins.getFlake (toString ./.)).outputs; in toString (builtins.filter (k: builtins.isAttrs o.\${k} && o.\${k} ? \"$SYSTEM\") (builtins.attrNames o))")"
-          for kind in $kinds; do
-            names="$(nix eval --raw ".#$kind.$SYSTEM" --apply 'set: toString (builtins.attrNames set)')"
-            for name in $names; do
-              targets+=(".#$kind.$SYSTEM.$name")
-            done
-          done
-          printf '%s\n' "${targets[@]}"
-          nix build --no-link --print-build-logs "${targets[@]}"
-      - name: Export the closure
-        if: steps.closure-cache.outputs.cache-hit != 'true'
-        run: nix copy --to "file://$RUNNER_TEMP/gritlint-closure?compression=zstd" "$OUT"
-      - name: Save the closure cache
-        if: steps.closure-cache.outputs.cache-hit != 'true'
+          rm -rf "$STORE_CACHE"
+          xargs -a "$RUNNER_TEMP/targets" -I{} nix eval --raw '{}.drvPath' --apply 'p: p + "\n"' |
+            xargs nix-store --query --requisites --include-outputs |
+            grep -v '\.drv$' |
+            xargs nix path-info --sigs |
+            awk '!/cache\.nixos\.org-1:/ { print $1 }' > "$RUNNER_TEMP/paths"
+          xargs -a "$RUNNER_TEMP/paths" nix copy --to "file://$STORE_CACHE?compression=zstd"
+          cp "$RUNNER_TEMP/paths" "$STORE_CACHE/paths"
+      - name: Save the Nix store cache
+        if: steps.store-cache.outputs.cache-hit != 'true'
         uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9
         with:
-          path: ${{ runner.temp }}/gritlint-closure
-          key: ${{ steps.closure.outputs.key }}
+          path: ${{ env.STORE_CACHE }}
+          key: ${{ steps.targets.outputs.key }}
+
+      - name: cargo deny
+        if: matrix.system == 'x86_64-linux'
+        run: |
+          export CARGO_HOME="$RUNNER_TEMP/cargo-home"
+          mkdir -p "$CARGO_HOME"
+          cp "$(nix build --no-link --print-out-paths ".#packages.$SYSTEM.gritlint-unwrapped.vendor")/config.toml" "$CARGO_HOME/"
+          nix develop --command cargo deny check
 
       - name: Sandboxed check fails on planted violations and passes once fixed
         run: sh scripts/tools/gate-journey.sh "$OUT/bin/gritlint"

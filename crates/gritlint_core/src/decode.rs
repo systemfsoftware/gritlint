@@ -657,10 +657,10 @@ fn parse_markdown(text: &str, path: &Path) -> Result<(String, String, String), G
             cursor = close + 1;
             continue;
         }
-        if title.is_none() {
-            if let Some(heading) = trimmed.strip_prefix("# ") {
-                title = Some((cursor, heading.trim().to_owned()));
-            }
+        if title.is_none()
+            && let Some(heading) = trimmed.strip_prefix("# ")
+        {
+            title = Some((cursor, heading.trim().to_owned()));
         }
         cursor += 1;
     }
@@ -695,14 +695,13 @@ fn first_content(lines: &[&str]) -> usize {
     let Some(mut start) = lines.iter().position(|line| !line.trim().is_empty()) else {
         return lines.len();
     };
-    if lines.get(start).is_some_and(|line| line.trim() == "---") {
-        if let Some(offset) = lines
+    if lines.get(start).is_some_and(|line| line.trim() == "---")
+        && let Some(offset) = lines
             .iter()
             .skip(start + 1)
             .position(|line| line.trim() == "---")
-        {
-            start += offset + 2;
-        }
+    {
+        start += offset + 2;
     }
     start.min(lines.len())
 }
