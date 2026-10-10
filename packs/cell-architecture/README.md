@@ -34,10 +34,12 @@ The pack takes no parameters.
   `layerConfig` on the Service class pass, in the two-argument form
   `Layer.effect(this, this.make)` and the curried form
   `Layer.effect(this)(this.make)`, and so does a layer that requires a platform
-  service such as `FileSystem` in its `R` channel without providing it. A
+  service such as `FileSystem` in its `R` channel without providing it, or a
+  member that aliases another through `this` (`layerTest = this.layer`). A
   `Layer.*` call is reported only in an exported module-level statement.
 - **A tripwire for driver imports.** The rule matches a service module's own
-  import, `import()` and re-export specifiers against a reviewed preset, the
+  import (including `import fs = require('…')`), `import()` and re-export
+  specifiers against a reviewed preset, the
   `driver_specifier` pattern in the rule: `node:*` and the Node built-ins that
   reach the operating system, `@effect/platform-*`, `@effect/sql-*`,
   `@effect/ai-*`, and a short list of database clients and vendor SDKs. A type-only
@@ -57,10 +59,12 @@ The pack takes no parameters.
   when the value it exports is named `layer`, `*Layer` or `*Live`: an
   identifier or the last property of a member access, such as `Driver.layer`,
   through a type annotation, `as`, or `satisfies`, and including
-  `export default layer`. gritlint does not resolve imports, so a Layer bound to
-  any other name is not reported, and neither is a namespace re-export
-  (`export * from` or `export * as Driver from`), whose name says nothing about
-  what it carries.
+  `export default layer`. A renamed import counts by the name it imports, not
+  its local alias: `import { consoleLayer as makeConsole }` is reported at the
+  specifier unless the import is type-only. gritlint does not resolve imports,
+  so a Layer exported under any other name is not reported, and neither is a
+  namespace re-export (`export * from` or `export * as Driver from`), whose
+  name says nothing about what it carries.
 - **Known gaps.** A tag declared in a module with another suffix, beside a
   Layer, is not reported. Inside the Service class, the rule judges member
   names and imports, not what a member builds: a static layer that provides a
