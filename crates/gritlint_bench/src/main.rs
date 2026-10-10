@@ -1,6 +1,6 @@
 mod breakdown;
 
-use gritlint_core::domain::EmbeddedFile;
+use gritlint_core::domain::{EmbeddedFile, RelPath};
 use gritlint_core::shell;
 use std::fmt::Write as _;
 use std::io::Write as _;
@@ -109,9 +109,9 @@ fn parse(mut args: impl Iterator<Item = String>) -> Result<Args, String> {
 
 fn bench(args: &Args) -> Result<String, String> {
     let (reference, _) = run(args, Arm::Baseline)?;
-    if !matches!(reference.code, Some(0 | 1)) {
+    if reference.code != Some(1) {
         return Err(format!(
-            "the baseline exited {:?}, so the corpus or config is broken and a comparison would prove nothing",
+            "the baseline exited {:?}, not 1 with findings, so the corpus or config is broken and a comparison would prove nothing",
             reference.code
         ));
     }
@@ -171,20 +171,17 @@ fn phases(args: &Args, reference: &Report) -> Result<String, String> {
 
 fn packs(root: &Path) -> Result<Vec<EmbeddedFile>, String> {
     let tree = shell::read_tree(root).map_err(|error| error.to_string())?;
-    Ok(tree
-        .files()
+    tree.files()
         .iter()
         .map(|file| {
-            EmbeddedFile::new(
-                file.path()
-                    .strip_prefix(root)
-                    .unwrap_or_else(|_| file.path())
-                    .to_string_lossy()
-                    .replace('\\', "/"),
+            let path = RelPath::from_root(root, file.path())
+                .map_err(|error| format!("{}: {error:?}", file.path().display()))?;
+            Ok(EmbeddedFile::new(
+                path.as_str().to_owned(),
                 file.contents().to_owned(),
-            )
+            ))
         })
-        .collect())
+        .collect()
 }
 
 fn run(args: &Args, arm: Arm) -> Result<(Report, Duration), String> {

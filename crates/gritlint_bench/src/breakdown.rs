@@ -1,7 +1,7 @@
 use gritlint_core::decode::{self, GritlintConfig};
-use gritlint_core::domain::{EmbeddedFile, Execution};
+use gritlint_core::domain::{EmbeddedFile, Execution, RelPath};
 use gritlint_core::{decide, encode, engine, shell};
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 use std::time::{Duration, Instant};
 
@@ -17,7 +17,7 @@ pub const PHASES: [&str; 8] = [
 ];
 
 pub struct Run {
-    pub walls: [Duration; 8],
+    pub walls: [Duration; PHASES.len()],
     pub total: Duration,
     pub counts: Counts,
     pub stdout: Vec<u8>,
@@ -54,7 +54,10 @@ pub fn run(config_path: &Path, corpus: &Path, packs: &[EmbeddedFile]) -> Result<
     let decode_wall = clock.elapsed();
 
     let clock = Instant::now();
-    let rules = decode::load_rules(&packs, &enabled, Vec::new(), config_path).map_err(message)?;
+    let base = config_path.parent().unwrap_or_else(|| Path::new("."));
+    let consumer: Vec<_> = config.rules.iter().map(|path| base.join(path)).collect();
+    let consumer = shell::read_rule_sources(&consumer).map_err(message)?;
+    let rules = decode::load_rules(&packs, &enabled, consumer, config_path).map_err(message)?;
     let compile_wall = clock.elapsed();
 
     let clock = Instant::now();
@@ -80,7 +83,26 @@ pub fn run(config_path: &Path, corpus: &Path, packs: &[EmbeddedFile]) -> Result<
     let rendered = encode::render_json(&outcome).map_err(message)?;
     let render_wall = clock.elapsed();
 
-    let census = census(&decide::executions(&plan, &sources).map_err(message)?);
+    let census = census(&decide::executions(&plan, &sources).map_err(message)?)?;
+    let read: BTreeSet<&str> = needed.iter().map(RelPath::as_str).collect();
+    if !census
+        .per_file
+        .keys()
+        .map(String::as_str)
+        .eq(read.iter().copied())
+    {
+        return Err(format!(
+            "the executions read {} distinct files, but the plan read {}",
+            census.per_file.len(),
+            read.len()
+        ));
+    }
+    let Some(match_wall) = scan_wall.checked_sub(census.wall) else {
+        return Err(format!(
+            "parsing alone took {:?}, longer than the whole scan's {scan_wall:?}, so the parse and match split is meaningless",
+            census.wall
+        ));
+    };
     Ok(Run {
         walls: [
             decode_wall,
@@ -89,7 +111,7 @@ pub fn run(config_path: &Path, corpus: &Path, packs: &[EmbeddedFile]) -> Result<
             plan_wall,
             read_wall,
             census.wall,
-            scan_wall.saturating_sub(census.wall),
+            match_wall,
             render_wall,
         ],
         total: decode_wall
@@ -115,20 +137,26 @@ pub fn run(config_path: &Path, corpus: &Path, packs: &[EmbeddedFile]) -> Result<
     })
 }
 
-fn census(executions: &[Execution]) -> Census {
+fn census(executions: &[Execution]) -> Result<Census, String> {
     let mut wall = Duration::ZERO;
     let mut per_file = BTreeMap::<String, usize>::new();
     let mut parses = 0;
     for execution in executions {
         for file in execution.read() {
             let clock = Instant::now();
-            let _ = engine::parse(execution.language(), file);
+            let tree = engine::parse(execution.language(), file);
             wall += clock.elapsed();
+            if !tree {
+                return Err(format!(
+                    "the engine's parser produced no tree for {}",
+                    file.path
+                ));
+            }
             parses += 1;
             *per_file.entry(file.path.clone()).or_default() += 1;
         }
     }
-    Census {
+    Ok(Census {
         wall,
         executions: executions.len(),
         pairs: executions
@@ -137,7 +165,7 @@ fn census(executions: &[Execution]) -> Census {
             .sum(),
         parses,
         per_file,
-    }
+    })
 }
 
 fn message(error: impl std::fmt::Display) -> String {

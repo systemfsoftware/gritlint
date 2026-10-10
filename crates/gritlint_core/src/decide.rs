@@ -109,18 +109,20 @@ pub fn executions(plan: &ScanPlan, sources: &Sources) -> Result<Vec<Execution>, 
     plan.steps
         .iter()
         .flat_map(tasks_of)
-        .map(|task| {
-            let files = task
-                .files()
-                .iter()
-                .map(|file| input_file(&task, file, sources).map(|input| (input, task.reads(file))))
-                .collect::<Result<Vec<_>, _>>()?;
-            Ok(Execution::new(
-                task.rule().rule().language().engine(),
-                files,
-            ))
-        })
+        .map(|task| execution(&task, sources))
         .collect()
+}
+
+fn execution(task: &Task<'_>, sources: &Sources) -> Result<Execution, GritlintError> {
+    let files = task
+        .files()
+        .iter()
+        .map(|file| input_file(task, file, sources).map(|input| (input, task.reads(file))))
+        .collect::<Result<Vec<_>, _>>()?;
+    Ok(Execution::new(
+        task.rule().rule().language().engine(),
+        files,
+    ))
 }
 
 #[must_use]
@@ -221,14 +223,11 @@ fn count_of(step: &RuleStep) -> RuleCount {
 
 fn run_task(task: &Task<'_>, sources: &Sources) -> Result<TaskRun, GritlintError> {
     let compiled = task.rule();
-    let files = task.files();
-    let inputs = files
-        .iter()
-        .map(|file| input_file(task, file, sources))
-        .collect::<Result<Vec<_>, _>>()?;
-    let outcome = compiled.compiled().execute(inputs);
+    let outcome = compiled
+        .compiled()
+        .execute(execution(task, sources)?.into_files());
     match task {
-        Task::Single { .. } => single_findings(compiled.rule(), &outcome, files),
+        Task::Single { .. } => single_findings(compiled.rule(), &outcome, task.files()),
         Task::Directory { directory, .. } => {
             directory_findings(compiled.rule(), &outcome, directory)
         }

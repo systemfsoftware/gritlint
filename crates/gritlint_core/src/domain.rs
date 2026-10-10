@@ -689,6 +689,10 @@ impl Execution {
             .filter(|(_, read)| *read)
             .map(|(file, _)| file)
     }
+
+    pub(crate) fn into_files(self) -> Vec<InputFile> {
+        self.files.into_iter().map(|(file, _)| file).collect()
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
