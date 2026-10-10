@@ -7,9 +7,10 @@
       url = "github:oxalica/rust-overlay";
       inputs.nixpkgs.follows = "nixpkgs";
     };
+    crane.url = "github:ipetkov/crane/v0.24.0";
   };
 
-  outputs = { self, nixpkgs, rust-overlay }:
+  outputs = { self, nixpkgs, rust-overlay, crane }:
     let
       lib = nixpkgs.lib;
       systems = [ "x86_64-linux" "aarch64-linux" ];
@@ -22,14 +23,20 @@
       # The Rust toolchain is rust-toolchain.toml, so a flake build and
       # `nix develop` compile with what CI compiles with.
       rust = pkgs: pkgs.rust-bin.fromRustupToolchainFile ./rust-toolchain.toml;
+      craneFor = pkgs: (crane.mkLib pkgs).overrideToolchain rust;
 
-      gritlintVersion = (builtins.fromTOML (builtins.readFile ./Cargo.toml)).workspace.package.version;
+      workspacePackage = (builtins.fromTOML (builtins.readFile ./Cargo.toml)).workspace.package;
+      gritlintVersion = workspacePackage.version;
+
+      # `rust-version = "1.90"` names the 1.90.0 toolchain.
+      msrv =
+        let parts = lib.splitString "." workspacePackage.rust-version;
+        in lib.concatStringsSep "." (parts ++ lib.optional (builtins.length parts == 2) "0");
 
       gritlintFor = pkgs:
         let
-          toolchain = rust pkgs;
           gritlint-unwrapped = pkgs.callPackage ./nix/gritlint.nix {
-            rustPlatform = pkgs.makeRustPlatform { cargo = toolchain; rustc = toolchain; };
+            craneLib = craneFor pkgs;
             version = gritlintVersion;
           };
         in
@@ -82,6 +89,16 @@
             [ "$("$bin" --version)" = "gritlint ${gritlintVersion}" ]
             touch $out
           '';
+        }
+        // import ./nix/gritlint-checks.nix {
+          inherit (pkgs) lib runCommand;
+          craneLib = craneFor pkgs;
+          # Language support does not vary by architecture, so one system checks the MSRV.
+          craneLibMsrv =
+            if system == "x86_64-linux"
+            then (crane.mkLib pkgs).overrideToolchain (p: p.rust-bin.stable.${msrv}.minimal)
+            else null;
+          gritlint = exported.gritlint-unwrapped;
         });
 
       devShells = forEachSystem (pkgs: {
@@ -89,6 +106,7 @@
           packages = [
             (rust pkgs)
             pkgs.cargo-deny
+            pkgs.cargo-nextest
           ];
         };
       });

@@ -3,7 +3,7 @@ title: gritlint as a standalone repository - Plan
 type: feat
 date: 2026-10-10
 topic: gritlint-standalone
-supersedes: docs/plans/2026-10-10-0209-feat-gritlint-standalone-plan.md
+supersedes: docs/plans/2026-10-10-0436-feat-gritlint-standalone-plan.md
 artifact_contract: ce-unified-plan/v1
 product_contract_source: ce-brainstorm
 execution: code
@@ -72,8 +72,8 @@ GritQL stays the engine. Its multifile patterns and offline execution under bubb
 **PR2 — Rust hygiene and CI cost (Done 7)**
 
 - R12. The flake builds with crane, so dependency artifacts are a separate cached derivation. CI restores and saves Nix store paths without secrets.
-- R13. Tests run under cargo-nextest; cargo-deny keeps running; `rust-version` in `Cargo.toml` is the pinned MSRV and a CI job compiles the workspace with exactly that toolchain.
-- R14. CI cost is the sum of billable job minutes for one cold-cache and one warm-cache PR run. PR2 measures it for itself, for PR1's runs, and for a monorepo run of its gritlint lanes (`rust`, `gritlint`, and `nix.yml` on both systems). PR2's warm run costs less than both, and the PR body records the numbers.
+- R13. Every check `scripts/tools/gate-rust.sh` runs becomes a flake check that each Nix job builds, except `cargo deny check`, which needs the network for advisories and stays a CI step. Tests run under cargo-nextest. `rust-version` in `Cargo.toml` is the pinned MSRV, and a check compiles the workspace with exactly that toolchain.
+- R14. CI cost is measured on exact runs through the GitHub REST API. Each run records `billable.total_ms` from `/actions/runs/{id}/timing`, which is 0 on public repositories, and its job minutes: each job's `completed_at - started_at` from `/actions/runs/{id}/attempts/{n}/jobs`, rounded up to a whole minute, which is how GitHub bills a private repository. A cold run restores no cache. A warm run is a re-run attempt of the same run, after the first attempt saved its caches. PR2 measures a cold and a warm run of its own, PR1's run 38021222065 (cold) and a re-run attempt of it (warm), and the monorepo's gritlint lanes at `df908ddf` (the `rust` and `gritlint` jobs of CI run 38008617968 and both jobs of Nix run 38008617804, a warm `main` push). PR2's warm run costs fewer job minutes than PR1's warm run and the monorepo's, and the PR body records every number.
 
 **PR3 — performance (Done 2)**
 
@@ -163,6 +163,12 @@ GritQL stays the engine. Its multifile patterns and offline execution under bubb
 - KTD7. **PR3's baseline is built from git, never checked in.** The benchmark job builds `packages.<system>.gritlint-unwrapped` at PR1's merge commit and at the PR head, so the baseline is reproducible. Governs R16, R17.
 - KTD8. **Test layers for later PRs, from the admission gate.** PR3: a differential check, PR1 binary against PR3 binary on the corpus, inside the benchmark. PR4: in-process tests through `gritlint_core`'s public API, including a regression case for the line-1 fallback. PR5: one fixture case per rule outcome, plus mutation evidence. PR6: one packed-install journey. PR7: in-process LSP tests over `lsp-server`'s in-memory connection, and export snapshots. Only the two CI journeys (R9, R23) run the binary as a process. Governs R15 to R26.
 - KTD9. **Approved tools for later PRs:** crane (a Nix library), cargo-nextest, cargo-deny, cargo-mutants (CI on `main` only), and in PR6 pnpm, node, `pnpm-release-management`'s `sandbox` and its reusable workflows at `8cd6e83009531de040cd9c03e1370b4966fd2a12`. For PR7, `lsp-server` (maintained by rust-lang in the rust-analyzer repository) and `lsp-types` (maintained by the gluon-lang organisation), each admitted through cargo-deny. Anything else stops for approval. Governs R11.
+- KTD10. **crane builds over the pinned vendor tree.** `nix/gritlint.nix` keeps `rustPlatform.fetchCargoVendor` with the existing `hash`, because crane's own git vendoring would face the duplicate crate names and submodule-only crates that `gritlint.nix` documents. The vendor is fetched from a source holding only `Cargo.lock`, so a source edit leaves the vendor and both dependency derivations unchanged. A small derivation copies the vendor's `source-git-0`, adds `resources/node-types` from the pinned engine checkout beside it (replacing `preBuild`), links `source-registry-0`, and writes `config.toml` with `@vendor@` resolved. crane takes it as `cargoVendorDir`. Governs R12.
+- KTD11. **Two dependency derivations.** The package builds against release-profile dependencies (fat LTO, one codegen unit). clippy, nextest and `cargo tree` share dev-profile dependencies, because linking each test binary under fat LTO would cost more than a second dependency build. The dependency derivations and the vendor tree are `passthru` on `gritlint-unwrapped`. Governs R12, R13.
+- KTD12. **The Rust gate becomes flake checks.** `checks.<system>` gains `gritlint-fmt`, `gritlint-clippy` (`-D warnings`, all targets), `gritlint-nextest`, `gritlint-packs` (`gritlint test packs` with the built CLI), `gritlint-schema` (the built CLI's `schema` against `npm/gritlint/configuration_schema.json`), `gritlint-decide-loops` and `gritlint-engine-features`, each carrying `gate-rust.sh`'s logic. `checks.x86_64-linux.gritlint-msrv` runs `cargo check --workspace --all-targets` with the toolchain read from `rust-version`, on one system because language support does not vary by architecture. `gate-rust.sh`, the `rust` job and its cargo cache are deleted. `cargo deny check` runs in the `x86_64-linux` Nix job through `nix develop`, after the build has realised the dev shell. The dev shell gains cargo-nextest. Governs R13.
+- KTD13. **One Nix store cache per system.** The key is a hash of every build target's output path, with that system's prefix as the restore key, so an exact hit means nothing to build and a prefix hit still carries the dependency derivations. Restore with `nix copy --no-check-sigs --from file://`. On a miss, the export starts from every path in the closure of the targets' derivations, outputs included, that has no signature and is not a `.drv` (locally built or restored), and copies those paths with their closures, because a `file://` binary cache refuses a path whose references it does not hold. Signed paths enter the bundle only as references of unsigned ones. Saving happens on every ref, because GitHub scopes caches by ref: a pull request's run can write only its own ref's cache, and `main`'s bundle is written only by `main` runs. This replaces PR1's closure cache. Governs R12.
+- KTD14. **Cost from the exact runs.** `/timing` is read for every measured run and recorded as is. Job minutes come from the jobs API of the named attempt. Warm runs are produced with `gh run rerun` on the cold run, so the commit and ref stay the same. A re-run rebuilds nothing, which flatters it. The table therefore also reports, for information, the first PR2 run on a new commit after the cold run: it restores through the prefix key and recompiles only the workspace. Governs R14.
+- KTD15. **PR2 adds no tests.** The KTD12 checks carry `gate-rust.sh`'s existing logic. The red probes in U5 run on scratch copies and are deleted, per the admission gate. Governs R13.
 
 ### High-Level Technical Design
 
@@ -183,7 +189,9 @@ flowchart TB
 | --- | --- | --- |
 | bubblewrap cannot create user namespaces on `ubuntu-24.04` runners | the journey fails | the monorepo's AppArmor sysctl step carries over |
 | A consumer evaluates the `x86_64-windows` attributes | evaluation throws by design (R6) | `nix flake check` evaluates the current system only; AE2 runs the refusal eval explicitly, locally in U3 and in CI |
-| The cold cargo build of the GritQL crates | slow first CI runs | KTD3 caches; PR2 replaces them with crane |
+| The cold cargo build of the GritQL crates | slow first CI runs | PR2's crane dependency derivations and store cache (KTD10 to KTD13) |
+| A dependency needs a newer compiler than `rust-version` | `gritlint-msrv` fails | raise `rust-version` to the measured minimum, which keeps the declared MSRV true |
+| The store-cache bundle outgrows its savings | warm runs spend more on restore than they save | measured in R14; the export roots exclude everything cache.nixos.org signs, though the closures of the roots carry some signed paths |
 
 ---
 
@@ -243,12 +251,14 @@ flowchart TB
 
 - **Goal:** cached Rust builds and a cheaper CI, measured.
 - **Requirements:** R12 to R14.
-- **Approach:** replace `buildRustPackage` with crane's `buildDepsOnly` and `buildPackage`, keeping the node-types `preBuild` and the attribute names. Run clippy, nextest and the gate steps as crane check derivations, so CI reuses the dependency derivation through the Nix store cache. Add an MSRV toolchain check at `rust-version`. Record warm and cold job minutes from the REST API for PR2, PR1 and a monorepo run of the same lanes.
+- **Approach:** KTD10 to KTD14. `nix/gritlint.nix` returns the crane package with its dependency derivations and vendor tree in `passthru`. `flake.nix` adds the `crane` input and the KTD12 checks. `ci.yml` drops the `rust` job, replaces the closure cache with the KTD13 store cache, and runs `cargo deny check` on `x86_64-linux`.
 - **Test scenarios:**
-  - A source-only edit rebuilds the gritlint derivation but not the dependency derivation.
-  - Using a language feature newer than `rust-version` fails the MSRV job.
-  - A cold run and a warm run are both measured; the warm run is cheaper than PR1's and the monorepo's.
-- **Verification:** the cost table in the PR body; every job green.
+  - A source-only edit changes the gritlint derivation but not either dependency derivation's `drvPath`.
+  - A library API stabilised after 1.90 (`Duration::from_mins`) in a scratch copy fails `gritlint-msrv`. `rust-version` is 1.90 because `tree-sitter-language` 0.1.8 requires it: with `rust-version = "1.89"`, `gritlint-msrv` fails naming that crate.
+  - Each KTD12 check goes red on a planted break in a scratch copy: unformatted code, a clippy warning, a failing test, a broken pack fixture, an edited schema file, a `for` loop in `decide.rs`.
+  - `gritlint-is-sandboxed`, `gritlint-unwrapped-is-plain`, AE2 and the journey still pass on the crane build.
+  - The cold run and its re-run attempt are measured; the warm attempt's job minutes are below PR1's warm attempt and the monorepo's lanes.
+- **Verification:** the R14 table in the PR body; every job green on the PR head.
 
 ### U6. Compile once, one parallel pass, benchmark (PR3)
 
@@ -316,12 +326,14 @@ flowchart LR
 | --- | --- | --- |
 | Provenance | AE3 blob-hash and mode comparison | R1 |
 | Ancestry | `git merge-base HEAD df908ddfe497e53c1c03b92519a96c913c441a58` exits 1 | R2 |
-| Rust gate | `nix develop --command sh scripts/tools/gate-rust.sh` | R3, R8 |
+| Rust gate (PR1; PR2 replaces it with the PR2 gate row) | `nix develop --command sh scripts/tools/gate-rust.sh` | R3, R8 |
 | Flake | `nix flake check`; AE2; the AE4 probes; `nix build` of each output | R5 to R7 |
 | Licence | root `LICENSE` and `npm/gritlint/LICENSE` name "System F Software" and carry the Iuvo AI and Biome Developers notices; `Cargo.toml` declares `license = "MIT"` | R4 |
 | Dogfood | `./bin/gritlint check`; `scripts/tools/gate-journey.sh` | R9 |
 | Consumer switch | AE1 scratch consumer flake | R5 |
 | CI | `ci.yml` green on the PR head on both systems, read through `run_watch` | R8 to R11 |
+| PR2 gate | `nix build` of every `checks.<system>` attribute; `nix develop --command cargo deny check` | R12, R13 |
+| PR2 cost | R14 table from `/timing` and the attempt jobs API | R14 |
 
 ## Definition of Done
 
@@ -372,5 +384,5 @@ Root `LICENSE`, the one pre-existing file, gains the GritQL notices.
 | --- | --- |
 | `flake.nix`, `flake.lock`, `.gitignore` | U3 |
 | `.github/workflows/ci.yml`, `scripts/tools/gate-journey.sh` | U4 |
-| `docs/plans/2026-10-10-0332-feat-gritlint-standalone-plan.md` | this plan |
+| `docs/plans/2026-10-10-0332-feat-gritlint-standalone-plan.md` | PR1's issue of this plan |
 | a `docs/solutions/` learning from ce-compound, if one is recorded | — |
