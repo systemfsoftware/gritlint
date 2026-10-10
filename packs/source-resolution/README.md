@@ -28,9 +28,9 @@ source).
     "source-resolution": {
       "condition": "r\"['\\\"]@systemfsoftware/source['\\\"]\"",
       "presets": "r\"\\\"@systemfsoftware/tsconfig/.*\\\"\"",
-      "presetFiles": "r\".*/tsconfig/(?:(?:bundler|tsc)/.*|node)\\.json\"",
+      "presetFiles": "r\"(?:.*/)?tsconfig/(?:(?:bundler|tsc)/.*|node)\\.json\"",
       "sharedVitestConfig": "r\"['\\\"]@systemfsoftware/vitest-config['\\\"]\"",
-      "sharedVitestConfigFile": "r\".*/vitest-config/lib/base\\.js\""
+      "sharedVitestConfigFile": "r\"(?:.*/)?vitest-config/lib/base\\.js\""
     }
   }
 }

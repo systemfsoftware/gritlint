@@ -132,15 +132,8 @@ fn bench(args: &Args) -> Result<String, String> {
     let deltas = shell::read_text(Path::new(&args.expected_deltas))
         .map_err(|error| error.to_string())
         .and_then(|text| deltas::parse(&text))?;
-    if let Some((rule, delta)) = deltas.iter().find(|(_, delta)| {
-        let directory = format!("{}/", delta.case);
-        !packs.iter().any(|file| file.path().starts_with(&directory))
-    }) {
-        return Err(format!(
-            "the expected delta for `{rule}` names `{}`, which is no bundled case directory",
-            delta.case
-        ));
-    }
+    let pack_files: Vec<&str> = packs.iter().map(EmbeddedFile::path).collect();
+    deltas::check_cases(&deltas, &pack_files)?;
     deltas::compare(&tally(&baseline)?, &tally(&candidate)?, &deltas)?;
     let mut walls = Walls::default();
     for round in 0..args.rounds {
