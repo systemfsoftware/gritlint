@@ -8,7 +8,7 @@
 )]
 
 use gritlint_core::engine::{
-    self, EngineOutcome, EngineRequest, InputFile, NamedPattern, TargetLanguage,
+    self, CompileRequest, EngineOutcome, InputFile, NamedPattern, TargetLanguage,
 };
 use std::collections::BTreeMap;
 
@@ -91,9 +91,8 @@ fn request(
     language: TargetLanguage,
     library: &[(&str, &str)],
     parameters: &[(&str, &str)],
-    files: &[(&str, &str)],
-) -> EngineRequest {
-    EngineRequest {
+) -> CompileRequest {
+    CompileRequest {
         body: body.to_owned(),
         library: library
             .iter()
@@ -107,13 +106,6 @@ fn request(
             .iter()
             .map(|(name, value)| ((*name).to_owned(), (*value).to_owned()))
             .collect::<BTreeMap<String, String>>(),
-        files: files
-            .iter()
-            .map(|(path, contents)| InputFile {
-                path: (*path).to_owned(),
-                contents: (*contents).to_owned(),
-            })
-            .collect(),
     }
 }
 
@@ -124,8 +116,17 @@ fn run(
     parameters: &[(&str, &str)],
     files: &[(&str, &str)],
 ) -> EngineOutcome {
-    let request = request(body, language, library, parameters, files);
-    engine::run(&request).unwrap_or_else(|error| panic!("engine run failed: {error}"))
+    let compiled = engine::compile(&request(body, language, library, parameters))
+        .unwrap_or_else(|error| panic!("engine compile failed: {error}"));
+    compiled.execute(
+        files
+            .iter()
+            .map(|(path, contents)| InputFile {
+                path: (*path).to_owned(),
+                contents: (*contents).to_owned(),
+            })
+            .collect(),
+    )
 }
 
 fn matched_paths(outcome: &EngineOutcome) -> Vec<&str> {
@@ -392,15 +393,9 @@ fn a_bound_parameter_changes_what_matches() {
 
 #[test]
 fn an_unbound_parameter_fails_to_compile_instead_of_matching_nothing() {
-    let request = request(
-        BOUND_CONDITION_PATTERN,
-        json(),
-        &[],
-        &[],
-        &[("params/app.json", PARAMS_APP_JSON)],
-    );
+    let request = request(BOUND_CONDITION_PATTERN, json(), &[], &[]);
 
-    let error = engine::run(&request).unwrap_err();
+    let error = engine::compile(&request).unwrap_err();
     let message = error.to_string();
     assert!(
         message.contains("condition"),
@@ -415,10 +410,9 @@ fn a_parameter_that_collides_with_a_library_pattern_is_rejected() {
         json(),
         REACT_LIBRARY,
         &[("react_dependency", r#"`"react": $_`"#)],
-        &[("single/package.json", SINGLE_PACKAGE_JSON)],
     );
 
-    let error = engine::run(&request).unwrap_err();
+    let error = engine::compile(&request).unwrap_err();
     assert!(
         error.to_string().contains("react_dependency"),
         "the collision must name the parameter: {error}"

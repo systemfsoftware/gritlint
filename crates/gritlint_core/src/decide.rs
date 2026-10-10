@@ -1,15 +1,16 @@
 use crate::domain::{
     CaseKind, CaseResult, CompiledRule, DirectoryBatch, Evaluation, Finding, FixtureCase,
     FixtureLayout, FixtureOutcome, FixtureRule, NonEmpty, Outcome, ParsedRule, RelPath, RuleCount,
-    RuleKind, RuleStep, ScanPlan, SelectedFile, SelectedFiles, Verdict,
+    RuleKind, RuleStep, ScanPlan, SelectedFile, SelectedFiles, Sources, Verdict,
 };
-use crate::engine::{self, EngineMatch, EngineOutcome, EngineRequest, InputFile};
+use crate::engine::{EngineMatch, EngineOutcome, InputFile};
 use crate::error::GritlintError;
+use rayon::prelude::*;
 use std::collections::BTreeMap;
 use std::path::Path;
 
-type Diagnostics = Vec<(String, String)>;
-type RuleRun = (Vec<Finding>, usize, Diagnostics);
+type Diagnostic = (String, String);
+type TaskRun = (Vec<Finding>, Option<Diagnostic>);
 
 #[must_use]
 pub fn plan(rules: &NonEmpty<CompiledRule>, files: &SelectedFiles) -> ScanPlan {
@@ -17,13 +18,13 @@ pub fn plan(rules: &NonEmpty<CompiledRule>, files: &SelectedFiles) -> ScanPlan {
         .iter()
         .map(|compiled| {
             let rule = compiled.rule();
-            let key = rule.language().key().to_owned();
-            let batch: Vec<SelectedFile> = files.batch(&key).cloned().collect();
+            let key = rule.language().key();
+            let batch: Vec<SelectedFile> = files.batch(key).cloned().collect();
             let evaluation = match rule.kind() {
                 RuleKind::SingleFile => Evaluation::SingleFile { batch },
                 RuleKind::MultiFile => {
                     let mut input = batch;
-                    input.extend(participants(rule, files, &key));
+                    input.extend(participants(rule, files, key));
                     let directories = partition_multifile(rule, &input);
                     let evaluated = directories
                         .iter()
@@ -64,27 +65,40 @@ pub fn partition_multifile(rule: &ParsedRule, batch: &[SelectedFile]) -> Vec<Dir
         .collect()
 }
 
-pub fn scan(plan: &ScanPlan) -> Result<Outcome, GritlintError> {
-    let all: Vec<&ParsedRule> = plan.steps.iter().map(|step| step.rule.rule()).collect();
-    let runs = plan
-        .steps
+#[must_use]
+pub fn sources_needed(plan: &ScanPlan) -> Vec<RelPath> {
+    let tasks: Vec<Task<'_>> = plan.steps.iter().flat_map(tasks_of).collect();
+    let mut paths: Vec<&RelPath> = tasks
         .iter()
-        .map(|step| run_step(step, &all))
+        .flat_map(|task| {
+            task.files()
+                .iter()
+                .filter(|file| task.reads(file))
+                .map(SelectedFile::path)
+        })
+        .collect();
+    paths.sort_unstable();
+    paths.dedup();
+    paths.into_iter().cloned().collect()
+}
+
+pub fn scan(plan: &ScanPlan, sources: &Sources) -> Result<Outcome, GritlintError> {
+    let tasks: Vec<Task<'_>> = plan.steps.iter().flat_map(tasks_of).collect();
+    let runs = tasks
+        .par_iter()
+        .map(|task| run_task(task, sources))
+        .collect::<Vec<_>>()
+        .into_iter()
         .collect::<Result<Vec<_>, _>>()?;
-    let (findings, counts, diagnostics) = runs.into_iter().fold(
-        (
-            Vec::<Finding>::new(),
-            Vec::<RuleCount>::new(),
-            Vec::<(String, String)>::new(),
-        ),
-        |(mut findings, mut counts, mut diagnostics), run| {
-            findings.extend(run.findings);
-            counts.push(run.count);
-            diagnostics.extend(run.diagnostics);
-            (findings, counts, diagnostics)
+    let counts = plan.steps.iter().map(count_of).collect();
+    let (findings, diagnostic) = runs.into_iter().fold(
+        (Vec::<Finding>::new(), None),
+        |(mut findings, first), (task_findings, task_diagnostic)| {
+            findings.extend(task_findings);
+            (findings, first.or(task_diagnostic))
         },
     );
-    match diagnostics.into_iter().next() {
+    match diagnostic {
         Some((file, message)) => Err(GritlintError::TargetParse { file, message }),
         None => Ok(canonicalize(findings, counts, plan.files_selected)),
     }
@@ -137,129 +151,110 @@ pub fn exit_code(verdict: Verdict) -> u8 {
     }
 }
 
-struct StepRun {
-    findings: Vec<Finding>,
-    count: RuleCount,
-    diagnostics: Vec<(String, String)>,
+enum Task<'a> {
+    Single {
+        rule: &'a CompiledRule,
+        batch: &'a [SelectedFile],
+    },
+    Directory {
+        rule: &'a CompiledRule,
+        directory: &'a DirectoryBatch,
+    },
 }
 
-fn run_step(step: &RuleStep, all: &[&ParsedRule]) -> Result<StepRun, GritlintError> {
-    let rule = step.rule.rule();
-    let library = rule.library_against(all);
-    let (findings, evaluated, diagnostics) = match &step.evaluation {
-        Evaluation::SingleFile { batch } => run_single(rule, &library, batch)?,
-        Evaluation::MultiFile {
-            directories,
-            evaluated,
-        } => run_multi(rule, &library, directories, *evaluated)?,
+impl Task<'_> {
+    fn rule(&self) -> &CompiledRule {
+        match self {
+            Task::Single { rule, .. } | Task::Directory { rule, .. } => rule,
+        }
+    }
+
+    fn files(&self) -> &[SelectedFile] {
+        match self {
+            Task::Single { batch, .. } => batch,
+            Task::Directory { directory, .. } => directory.files(),
+        }
+    }
+
+    fn reads(&self, file: &SelectedFile) -> bool {
+        file.language().key() == self.rule().rule().language().key()
+    }
+}
+
+fn tasks_of(step: &RuleStep) -> Vec<Task<'_>> {
+    let rule = &step.rule;
+    match &step.evaluation {
+        Evaluation::SingleFile { batch } => vec![Task::Single { rule, batch }],
+        Evaluation::MultiFile { directories, .. } => directories
+            .iter()
+            .map(|directory| Task::Directory { rule, directory })
+            .collect(),
+    }
+}
+
+fn count_of(step: &RuleStep) -> RuleCount {
+    let evaluated = match &step.evaluation {
+        Evaluation::SingleFile { batch } => batch.len(),
+        Evaluation::MultiFile { evaluated, .. } => *evaluated,
     };
-    Ok(StepRun {
-        findings,
-        count: RuleCount::new(rule.id().clone(), evaluated),
-        diagnostics,
-    })
+    RuleCount::new(step.rule.rule().id().clone(), evaluated)
 }
 
-fn run_single(
+fn run_task(task: &Task<'_>, sources: &Sources) -> Result<TaskRun, GritlintError> {
+    let compiled = task.rule();
+    let files = task.files();
+    let inputs = files
+        .iter()
+        .map(|file| input_file(task, file, sources))
+        .collect::<Result<Vec<_>, _>>()?;
+    let outcome = compiled.compiled().execute(inputs);
+    match task {
+        Task::Single { .. } => single_findings(compiled.rule(), &outcome, files),
+        Task::Directory { directory, .. } => {
+            directory_findings(compiled.rule(), &outcome, directory)
+        }
+    }
+}
+
+fn single_findings(
     rule: &ParsedRule,
-    library: &[engine::NamedPattern],
+    outcome: &EngineOutcome,
     batch: &[SelectedFile],
-) -> Result<RuleRun, GritlintError> {
-    let files: Vec<InputFile> = batch.iter().map(input_file).collect();
-    let outcome = execute(rule, library, files)?;
+) -> Result<TaskRun, GritlintError> {
     let findings = outcome
         .matches
         .iter()
         .map(|matched| finding_for(rule, matched))
         .collect::<Result<Vec<_>, _>>()?;
-    Ok((findings, batch.len(), collect_diagnostics(&outcome, batch)))
+    Ok((findings, first_diagnostic(outcome, batch)))
 }
 
-fn run_multi(
+fn directory_findings(
     rule: &ParsedRule,
-    library: &[engine::NamedPattern],
-    directories: &[DirectoryBatch],
-    evaluated: usize,
-) -> Result<RuleRun, GritlintError> {
-    let runs = directories
-        .iter()
-        .map(|directory| run_directory(rule, library, directory))
-        .collect::<Result<Vec<_>, _>>()?;
-    let _empty = directories
-        .is_empty()
-        .then(|| {
-            run_directory(
-                rule,
-                library,
-                &DirectoryBatch {
-                    directory: None,
-                    files: Vec::new(),
-                },
-            )
-        })
-        .transpose()?;
-    let (findings, diagnostics) = runs.into_iter().fold(
-        (Vec::<Finding>::new(), Diagnostics::new()),
-        |(mut findings, mut diagnostics), (directory_findings, directory_diagnostics)| {
-            findings.extend(directory_findings);
-            diagnostics.extend(directory_diagnostics);
-            (findings, diagnostics)
-        },
-    );
-    Ok((findings, evaluated, diagnostics))
-}
-
-fn run_directory(
-    rule: &ParsedRule,
-    library: &[engine::NamedPattern],
+    outcome: &EngineOutcome,
     directory: &DirectoryBatch,
-) -> Result<(Vec<Finding>, Diagnostics), GritlintError> {
-    let files: Vec<InputFile> = directory.files.iter().map(input_file).collect();
-    let outcome = execute(rule, library, files)?;
-    let diagnostics = collect_diagnostics(&outcome, &directory.files);
+) -> Result<TaskRun, GritlintError> {
+    let diagnostic = first_diagnostic(outcome, directory.files());
     let message = format!(
         "{} (directory `{}`)",
         rule.message(),
-        directory.directory.as_ref().map_or("", RelPath::as_str)
+        directory.directory().map_or("", RelPath::as_str)
     );
     let finding = (!outcome.matches.is_empty())
-        .then(|| first_match(&outcome, &directory.files))
+        .then(|| first_match(outcome, directory.files()))
         .transpose()?
         .flatten()
         .map(|(path, line)| Finding::new(rule.id().clone(), path, line, message));
-    Ok((finding.into_iter().collect(), diagnostics))
+    Ok((finding.into_iter().collect(), diagnostic))
 }
 
-fn execute(
-    rule: &ParsedRule,
-    library: &[engine::NamedPattern],
-    files: Vec<InputFile>,
-) -> Result<EngineOutcome, GritlintError> {
-    let request = EngineRequest {
-        body: rule.body().to_owned(),
-        library: library.to_vec(),
-        language: rule.language().engine(),
-        parameters: rule.engine_parameters(),
-        files,
-    };
-    engine::run(&request).map_err(|error| GritlintError::RuleCompile {
-        id: rule.id().as_string(),
-        path: rule.path().as_path().to_owned(),
-        message: error.to_string(),
+fn first_diagnostic(outcome: &EngineOutcome, files: &[SelectedFile]) -> Option<Diagnostic> {
+    outcome.diagnostics.iter().find_map(|diagnostic| {
+        files
+            .iter()
+            .any(|file| file.path().as_str() == diagnostic.path)
+            .then(|| (diagnostic.path.clone(), diagnostic.message.clone()))
     })
-}
-
-fn collect_diagnostics(outcome: &EngineOutcome, files: &[SelectedFile]) -> Vec<(String, String)> {
-    outcome
-        .diagnostics
-        .iter()
-        .filter(|diagnostic| {
-            files
-                .iter()
-                .any(|file| file.path().as_str() == diagnostic.path)
-        })
-        .map(|diagnostic| (diagnostic.path.clone(), diagnostic.message.clone()))
-        .collect()
 }
 
 fn first_match(
@@ -301,11 +296,25 @@ fn finding_for(rule: &ParsedRule, matched: &EngineMatch) -> Result<Finding, Grit
     ))
 }
 
-fn input_file(file: &SelectedFile) -> InputFile {
-    InputFile {
+fn input_file(
+    task: &Task<'_>,
+    file: &SelectedFile,
+    sources: &Sources,
+) -> Result<InputFile, GritlintError> {
+    let contents = if task.reads(file) {
+        sources
+            .text(file.path())
+            .ok_or_else(|| GritlintError::SourceUnread {
+                path: file.path().as_str().to_owned(),
+            })?
+            .to_owned()
+    } else {
+        String::new()
+    };
+    Ok(InputFile {
         path: file.path().as_str().to_owned(),
-        contents: file.contents().to_owned(),
-    }
+        contents,
+    })
 }
 
 fn in_scope(rule: &ParsedRule, file: &SelectedFile) -> bool {
@@ -326,7 +335,7 @@ fn participants(rule: &ParsedRule, files: &SelectedFiles, own_key: &str) -> Vec<
                 .iter()
                 .any(|target| target.is_match(file.path().as_str()))
         })
-        .map(|file| SelectedFile::new(file.language().clone(), file.path().clone(), String::new()))
+        .map(|file| SelectedFile::new(file.language().clone(), file.path().clone()))
         .collect()
 }
 
@@ -395,9 +404,10 @@ fn evaluate(
 ) -> Result<CaseResult, GritlintError> {
     let mut scoped = rule.rule.clone();
     scoped.with_params(case.params.clone());
-    let rules = NonEmpty::from_head(CompiledRule::sealed(scoped), Vec::new());
+    let compiled = CompiledRule::compile(&scoped, &[&scoped])?;
+    let rules = NonEmpty::from_head(compiled, Vec::new());
     let plan = plan(&rules, &case.files);
-    let outcome = scan(&plan)?;
+    let outcome = scan(&plan, &case.sources)?;
     let verdict = outcome.verdict();
     let passed = match case.kind {
         CaseKind::Bad => verdict == Verdict::Findings,

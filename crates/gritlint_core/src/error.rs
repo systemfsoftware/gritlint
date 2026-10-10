@@ -68,6 +68,8 @@ pub enum GritlintError {
     },
     #[error("target file `{file}` does not parse: {message}")]
     TargetParse { file: String, message: String },
+    #[error("target file `{path}` was planned for a rule but never read")]
+    SourceUnread { path: String },
     #[error("ignore glob `{glob}` is invalid: {message}")]
     InvalidIgnoreGlob { glob: String, message: String },
     #[error("cannot render the report: {message}")]

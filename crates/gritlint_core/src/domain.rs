@@ -1,10 +1,12 @@
 use crate::engine::TargetLanguage;
 use crate::error::GritlintError;
 use globset::GlobSet;
+use grit_util::Language as _;
 use regex::Regex;
 use std::collections::BTreeMap;
 use std::fmt;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct NonEmpty<T> {
@@ -267,7 +269,7 @@ impl fmt::Display for RelPath {
 #[derive(Debug, Clone)]
 pub struct Language {
     engine: TargetLanguage,
-    key: String,
+    key: &'static str,
 }
 
 impl Language {
@@ -284,13 +286,13 @@ impl Language {
     fn of(engine: TargetLanguage) -> Self {
         Self {
             engine,
-            key: format!("{engine:?}"),
+            key: engine.language_name(),
         }
     }
 
     #[must_use]
-    pub fn key(&self) -> &str {
-        &self.key
+    pub fn key(&self) -> &'static str {
+        self.key
     }
 
     #[must_use]
@@ -461,17 +463,39 @@ impl ParsedRule {
 }
 
 #[derive(Debug, Clone)]
-pub struct CompiledRule(ParsedRule);
+pub struct CompiledRule {
+    rule: ParsedRule,
+    compiled: Arc<crate::engine::Compiled>,
+}
 
 impl CompiledRule {
-    #[must_use]
-    pub(crate) fn sealed(parsed: ParsedRule) -> Self {
-        Self(parsed)
+    pub(crate) fn compile(rule: &ParsedRule, all: &[&ParsedRule]) -> Result<Self, GritlintError> {
+        let request = crate::engine::CompileRequest {
+            body: rule.body().to_owned(),
+            library: rule.library_against(all),
+            language: rule.language().engine(),
+            parameters: rule.engine_parameters(),
+        };
+        crate::engine::compile(&request)
+            .map(|compiled| Self {
+                rule: rule.clone(),
+                compiled: Arc::new(compiled),
+            })
+            .map_err(|error| GritlintError::RuleCompile {
+                id: rule.id().as_string(),
+                path: rule.path().as_path().to_owned(),
+                message: error.to_string(),
+            })
     }
 
     #[must_use]
     pub fn rule(&self) -> &ParsedRule {
-        &self.0
+        &self.rule
+    }
+
+    #[must_use]
+    pub fn compiled(&self) -> &crate::engine::Compiled {
+        &self.compiled
     }
 }
 
@@ -479,17 +503,12 @@ impl CompiledRule {
 pub struct SelectedFile {
     language: Language,
     path: RelPath,
-    contents: String,
 }
 
 impl SelectedFile {
     #[must_use]
-    pub fn new(language: Language, path: RelPath, contents: String) -> Self {
-        Self {
-            language,
-            path,
-            contents,
-        }
+    pub fn new(language: Language, path: RelPath) -> Self {
+        Self { language, path }
     }
 
     #[must_use]
@@ -501,26 +520,35 @@ impl SelectedFile {
     pub fn path(&self) -> &RelPath {
         &self.path
     }
+}
 
+#[derive(Debug, Clone)]
+pub struct Sources(BTreeMap<RelPath, String>);
+
+impl Sources {
     #[must_use]
-    pub fn contents(&self) -> &str {
-        &self.contents
+    pub fn text(&self, path: &RelPath) -> Option<&str> {
+        self.0.get(path).map(String::as_str)
+    }
+}
+
+impl FromIterator<(RelPath, String)> for Sources {
+    fn from_iter<I: IntoIterator<Item = (RelPath, String)>>(entries: I) -> Self {
+        Self(entries.into_iter().collect())
     }
 }
 
 #[derive(Debug, Clone)]
 pub struct SelectedFiles {
-    by_language: BTreeMap<String, NonEmpty<SelectedFile>>,
+    by_language: BTreeMap<&'static str, NonEmpty<SelectedFile>>,
 }
 
 impl SelectedFiles {
     pub fn new(files: Vec<SelectedFile>, root: &Path) -> Result<Self, GritlintError> {
         let grouped = files.into_iter().fold(
-            BTreeMap::<String, Vec<SelectedFile>>::new(),
+            BTreeMap::<&'static str, Vec<SelectedFile>>::new(),
             |mut map, file| {
-                map.entry(file.language.key().to_owned())
-                    .or_default()
-                    .push(file);
+                map.entry(file.language.key()).or_default().push(file);
                 map
             },
         );
@@ -548,8 +576,8 @@ impl SelectedFiles {
         self.by_language.values().map(NonEmpty::len).sum()
     }
 
-    pub fn language_keys(&self) -> impl Iterator<Item = &str> {
-        self.by_language.keys().map(String::as_str)
+    pub fn language_keys(&self) -> impl Iterator<Item = &'static str> + '_ {
+        self.by_language.keys().copied()
     }
 }
 
@@ -990,6 +1018,7 @@ pub struct FixtureCase {
     pub(crate) kind: CaseKind,
     pub(crate) directory: PathBuf,
     pub(crate) files: SelectedFiles,
+    pub(crate) sources: Sources,
     pub(crate) params: BTreeMap<ParamName, String>,
 }
 

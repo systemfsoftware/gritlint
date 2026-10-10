@@ -62,6 +62,7 @@ let
       ../clippy.toml
       ../apps/gritlint
       ../crates/gritlint_core
+      ../crates/gritlint_bench
       ../packs
     ];
   };

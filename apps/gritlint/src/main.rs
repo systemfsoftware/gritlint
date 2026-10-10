@@ -118,13 +118,14 @@ fn check(args: &CheckArgs) -> Result<ExitCode, GritlintError> {
 
     let packs = embedded_packs()?;
     let enabled = decode::enabled_packs(&config, &config_path)?;
-    let sources = shell::read_rule_sources(&consumer)?;
-    let rules = decode::load_rules(&packs, &enabled, sources, &config_path)?;
+    let rule_sources = shell::read_rule_sources(&consumer)?;
+    let rules = decode::load_rules(&packs, &enabled, rule_sources, &config_path)?;
     let ignore = decode::ignore_globs(&config.ignore)?;
-    let walked = shell::walk(&args.root, &ignore)?;
+    let walked = shell::walk(&args.root, &ignore);
     let files = decode::select_files(walked, &args.root)?;
     let plan = decide::plan(&rules, &files);
-    let outcome = decide::scan(&plan)?;
+    let sources = shell::read_sources(&args.root, &decide::sources_needed(&plan))?;
+    let outcome = decide::scan(&plan, &sources)?;
 
     let rendered = match args.format {
         Format::Human => encode::render_human(&outcome),

@@ -67,7 +67,7 @@ fn markdown_rule(name: &str, description: &str, body: &str) -> ParsedRule {
 
 fn scan(root: &Path, rules: &[ParsedRule], ignore: &[String]) -> Result<Outcome, GritlintError> {
     let globs = decode::ignore_globs(ignore)?;
-    let walked = shell::walk(root, &globs)?;
+    let walked = shell::walk(root, &globs);
     let files = decode::select_files(walked, root)?;
     let compiled = rules
         .iter()
@@ -75,7 +75,8 @@ fn scan(root: &Path, rules: &[ParsedRule], ignore: &[String]) -> Result<Outcome,
         .collect::<Result<Vec<_>, _>>()?;
     let rules = NonEmpty::new(compiled).expect("at least one rule");
     let plan = decide::plan(&rules, &files);
-    decide::scan(&plan)
+    let sources = shell::read_sources(root, &decide::sources_needed(&plan))?;
+    decide::scan(&plan, &sources)
 }
 
 fn snapshot(root: &Path) -> Vec<(String, String)> {

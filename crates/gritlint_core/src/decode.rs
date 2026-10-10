@@ -1,11 +1,11 @@
 use crate::domain::{
-    EmbeddedFile, FixtureCase, FixtureLayout, FixtureRule, FixtureUnit, IgnoreGlobs, Language,
-    NonEmpty, Pack, PackName, ParamName, ParsedRule, RawFile, RawTree, RelPath, RuleId, RuleName,
-    RuleSource, SelectedFile, SelectedFiles, SourcePath,
+    CompiledRule, EmbeddedFile, FixtureCase, FixtureLayout, FixtureRule, FixtureUnit, IgnoreGlobs,
+    Language, NonEmpty, Pack, PackName, ParamName, ParsedRule, RawTree, RelPath, RuleId, RuleName,
+    RuleSource, SelectedFile, SelectedFiles, SourcePath, Sources,
 };
-use crate::engine::{self, EngineRequest};
 use crate::error::GritlintError;
 use globset::{Glob, GlobSetBuilder};
+use rayon::prelude::*;
 use regex::Regex;
 use schemars::{JsonSchema, Schema, schema_for};
 use serde::Deserialize;
@@ -284,22 +284,16 @@ pub fn load_rules(
     })
 }
 
-pub fn select_files(raw: Vec<RawFile>, root: &Path) -> Result<SelectedFiles, GritlintError> {
-    let files = raw
+pub fn select_files(paths: Vec<PathBuf>, root: &Path) -> Result<SelectedFiles, GritlintError> {
+    let files = paths
         .into_iter()
-        .map(|file| -> Result<Option<SelectedFile>, GritlintError> {
-            match language_of(file.path()) {
+        .map(|path| -> Result<Option<SelectedFile>, GritlintError> {
+            match language_of(&path) {
                 None => Ok(None),
-                Some(language) => RelPath::from_root(root, file.path())
-                    .map(|relative| {
-                        Some(SelectedFile::new(
-                            language,
-                            relative,
-                            file.contents().to_owned(),
-                        ))
-                    })
+                Some(language) => RelPath::from_root(root, &path)
+                    .map(|relative| Some(SelectedFile::new(language, relative)))
                     .map_err(|reason| GritlintError::RelPath {
-                        path: file.path().display().to_string(),
+                        path: path.display().to_string(),
                         reason,
                     }),
             }
@@ -371,32 +365,19 @@ pub fn is_rule_file(path: &Path) -> bool {
     })
 }
 
-fn compile_all(parsed: &[ParsedRule]) -> Result<Vec<crate::domain::CompiledRule>, GritlintError> {
+fn compile_all(parsed: &[ParsedRule]) -> Result<Vec<CompiledRule>, GritlintError> {
+    let all: Vec<&ParsedRule> = parsed.iter().collect();
     parsed
-        .iter()
-        .map(|rule| compile_rule(rule, parsed))
+        .par_iter()
+        .map(|rule| CompiledRule::compile(rule, &all))
+        .collect::<Vec<_>>()
+        .into_iter()
         .collect()
 }
 
-pub fn compile_rule(
-    rule: &ParsedRule,
-    all: &[ParsedRule],
-) -> Result<crate::domain::CompiledRule, GritlintError> {
-    let libraries: Vec<&ParsedRule> = all.iter().collect();
-    let request = EngineRequest {
-        body: rule.body().to_owned(),
-        library: rule.library_against(&libraries),
-        language: rule.language().engine(),
-        parameters: rule.engine_parameters(),
-        files: Vec::new(),
-    };
-    engine::run(&request)
-        .map(|_| crate::domain::CompiledRule::sealed(rule.clone()))
-        .map_err(|error| GritlintError::RuleCompile {
-            id: rule.id().as_string(),
-            path: rule.path().as_path().to_owned(),
-            message: error.to_string(),
-        })
+pub fn compile_rule(rule: &ParsedRule, all: &[ParsedRule]) -> Result<CompiledRule, GritlintError> {
+    let all: Vec<&ParsedRule> = all.iter().collect();
+    CompiledRule::compile(rule, &all)
 }
 
 fn push_unique(
@@ -538,34 +519,39 @@ fn fixture_case(
         }
     };
 
-    let files = select_case_files(tree, case_directory, &ignore)?;
+    let (files, sources) = select_case_files(tree, case_directory, &ignore)?;
     Ok(FixtureCase {
         kind,
         directory: case_directory.to_owned(),
         files,
+        sources,
         params,
     })
 }
+
+type CaseEntry = (SelectedFile, (RelPath, String));
 
 fn select_case_files(
     tree: &RawTree,
     case_directory: &Path,
     ignore: &IgnoreGlobs,
-) -> Result<SelectedFiles, GritlintError> {
-    let files = tree
+) -> Result<(SelectedFiles, Sources), GritlintError> {
+    let (files, sources): (Vec<SelectedFile>, Vec<(RelPath, String)>) = tree
         .files()
         .iter()
         .filter(|file| file.path().starts_with(case_directory))
         .filter(|file| !skipped(file.path(), case_directory))
-        .map(|file| -> Result<Option<SelectedFile>, GritlintError> {
+        .map(|file| -> Result<Option<CaseEntry>, GritlintError> {
             match language_of(file.path()) {
                 None => Ok(None),
                 Some(language) => RelPath::from_root(case_directory, file.path())
                     .map(|relative| {
-                        let selected = relative.as_str().to_owned();
-                        let keep = !ignore.matches(&selected);
+                        let keep = !ignore.matches(relative.as_str());
                         keep.then(|| {
-                            SelectedFile::new(language, relative, file.contents().to_owned())
+                            (
+                                SelectedFile::new(language, relative.clone()),
+                                (relative, file.contents().to_owned()),
+                            )
                         })
                     })
                     .map_err(|reason| GritlintError::RelPath {
@@ -577,8 +563,11 @@ fn select_case_files(
         .collect::<Result<Vec<_>, _>>()?
         .into_iter()
         .flatten()
-        .collect();
-    SelectedFiles::new(files, case_directory)
+        .unzip();
+    Ok((
+        SelectedFiles::new(files, case_directory)?,
+        sources.into_iter().collect(),
+    ))
 }
 
 fn skipped(path: &Path, case_directory: &Path) -> bool {
