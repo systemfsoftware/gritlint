@@ -1,13 +1,13 @@
 ---
 reasonCode: tsconfig-paths-self-name
-nextAction: Delete the `paths` entry that maps the package's own name and let the export map's condition resolve it.
+nextAction: Delete the `paths` entry that maps the package's own name or a subpath of it, and let the export map's condition resolve it.
 locate: `"paths": $_`
 ---
 
 # tsconfig paths: never map the package's own published name
 
-No tsconfig may map the package's own published name through
-`compilerOptions.paths`. A self-name mapping is a shortcut that bypasses the
+No tsconfig may map the package's own published name, or any subpath of it
+(`<name>/*`, `<name>/<subpath>`), through `compilerOptions.paths`. A self-name mapping is a shortcut that bypasses the
 export map.
 
 `paths` is honoured only by the tools that read that tsconfig, so the mapping
@@ -33,7 +33,7 @@ multifile {
     $config_dir <: $dir,
     $program <: contains `"paths": $paths`,
     $paths <: contains `$mapped: $target`,
-    $mapped <: r"\"(.*)\""($key),
+    $mapped <: r"\"((?:@[^/]+/)?[^/]+)(?:/.*)?\""($key),
     $key <: $package
   }
 }
