@@ -33,6 +33,89 @@ let
 
   inherit (release) vendor;
 
+  # Cargo gives every unit a `-C metadata` hash, and rustc mixes that hash into
+  # every symbol name the crate defines. For a target unit, cargo leaves out
+  # rustc's `host:` line, but it mixes in the metadata of every dependency
+  # (cargo `src/compiler/build_runner/compilation_files.rs:849-856`). Build
+  # scripts and proc macros are host units, and their hash includes the host
+  # (`:929-934`). So the same target crate gets a different hash on each
+  # system. For target units only (`--target` is given), this wrapper swaps
+  # cargo's value for a hash of host-independent inputs: the crate name, the
+  # package name and version, the crate type, the target and the sorted
+  # features. Host units and every other argument pass through unchanged,
+  # `-C extra-filename` included. The wrapper changes only the symbol
+  # disambiguators, never a codegen flag.
+  rustcWrapper = pkgs.writeShellScript "gritlint-rustc-metadata" ''
+    set -eu
+    rustc=$1
+    shift
+    target="" crate="" type="" meta="" prev=""
+    features=()
+    for arg; do
+      case $prev in
+        --target) target=$arg ;;
+        --crate-name) crate=$arg ;;
+        --crate-type) type="$type$arg," ;;
+        --cfg) case $arg in feature=*) features+=("$arg") ;; esac ;;
+        -C) case $arg in metadata=*) meta=''${arg#metadata=} ;; esac ;;
+      esac
+      prev=$arg
+    done
+    if [ -z "$meta" ]; then
+      exec "$rustc" "$@"
+    fi
+    if [ -z "$target" ]; then
+      echo "$GRITLINT_RUSTC_BUILD passthrough $crate $meta" >>"$GRITLINT_RUSTC_METADATA_LOG"
+      exec "$rustc" "$@"
+    fi
+    normalized=$(
+      {
+        printf '%s\n' "$crate" "''${CARGO_PKG_NAME:-}" "''${CARGO_PKG_VERSION:-}" "$type" "$target"
+        printf '%s\n' "''${features[@]}" | LC_ALL=C sort
+      } | sha256sum | cut -c1-16
+    )
+    args=()
+    prev=""
+    for arg; do
+      if [ "$prev" = -C ] && [ "$arg" = "metadata=$meta" ]; then
+        arg=metadata=$normalized
+      fi
+      args+=("$arg")
+      prev=$arg
+    done
+    echo "$GRITLINT_RUSTC_BUILD normalized $crate $meta $normalized $target" >>"$GRITLINT_RUSTC_METADATA_LOG"
+    exec "$rustc" "''${args[@]}"
+  '';
+
+  # The log lives in the target directory, so the package build inherits the
+  # dependency build's entries along with its artifacts. Within one cargo
+  # build, two cargo hashes are two units, and they must not share a
+  # normalized hash. Across the two builds, a workspace crate is built once as
+  # crane's dummy and again from its source, under a new cargo hash. So each
+  # build checks only its own entries.
+  metadataLog = {
+    RUSTC_WRAPPER = rustcWrapper;
+    preBuild = ''
+      mkdir -p "''${CARGO_TARGET_DIR:-target}"
+      export GRITLINT_RUSTC_METADATA_LOG=$(realpath "''${CARGO_TARGET_DIR:-target}")/rustc-metadata.log
+      export GRITLINT_RUSTC_BUILD=$pname
+      touch "$GRITLINT_RUSTC_METADATA_LOG"
+    '';
+    postBuild = ''
+      log=$GRITLINT_RUSTC_METADATA_LOG
+      own() { awk -v build="$pname" -v kind="$1" '$1 == build && $2 == kind' "$log"; }
+      echo "rustc wrapper, a normalized target unit: $(own normalized | awk 'NR == 1')"
+      echo "rustc wrapper, a passthrough host unit: $(own passthrough | awk 'NR == 1 { print; found = 1 } END { if (!found) print "none rebuilt in this build" }')"
+      shared=$(own normalized | awk '{ print $5, $4 }' | sort -u | awk '{ n[$1]++ } END { for (m in n) if (n[m] > 1) print m }')
+      if [ -n "$shared" ]; then
+        echo "rustc wrapper: two target units share a normalized metadata:" >&2
+        for m in $shared; do own normalized | awk -v m="$m" '$5 == m' | sort -u >&2; done
+        exit 1
+      fi
+      echo "rustc wrapper: $(own normalized | awk '{ print $4 }' | sort -u | wc -l) target units in $pname; normalized set so far $(awk '$2 == "normalized" { print $3, $5, $6 }' "$log" | sort -u | sha256sum | cut -c1-16)"
+    '';
+  };
+
   buildFor =
     target:
     let
@@ -46,7 +129,7 @@ let
       # locations and C `assert` strings; both systems must emit the same bytes.
       remap = "/gritlint-vendor";
       cFlags = "-ffile-prefix-map=${vendor}=${remap}";
-      args = release.releaseArgs // {
+      args = release.releaseArgs // metadataLog // {
         pname = "gritlint-${target.suffix}";
         # Always explicit, even for the native target: cargo then keeps the
         # target's flags off build scripts and proc macros. Linking those
@@ -64,13 +147,9 @@ let
           # choice goes to the C compiler driver, which takes the last `-fuse-ld`.
           "-C link-arg=-fuse-ld=bfd"
           "--remap-path-prefix=${vendor}=${remap}"
-          # R29 round-3 diagnostic, reverted by the fix: GNU ld's link map.
-          "-C link-arg=-Wl,-Map=gritlint.link-map"
         ];
         "CFLAGS_${lib.replaceStrings [ "-" ] [ "_" ] rustTarget}" = cFlags;
         "CXXFLAGS_${lib.replaceStrings [ "-" ] [ "_" ] rustTarget}" = cFlags;
-        # R29 round-3 diagnostic: the cc crate logs every compiler command.
-        CC_ENABLE_DEBUG_OUTPUT = "1";
       };
     in
     craneLib.buildPackage (
@@ -85,26 +164,6 @@ let
         );
         cargoExtraArgs = "--locked -p gritlint";
         doCheck = false;
-        # R29 round-3 diagnostic: the link map, the cc crate's commands, and the
-        # target C compiler's macros and driver line under the flags it used.
-        postInstall = ''
-          find . -name gritlint.link-map -exec cp {} $out/link-map \;
-          test -s $out/link-map
-          find target -path '*/build/*/output' | sort | xargs grep -h '^running: ' | sort > $out/cc-commands
-          line=$(grep -h -m1 -- '"-c"' $(find target -path '*/build/*/output' | grep -E '/build/tree-sitter-[0-9a-f]{16}/output$'))
-          eval "set -- ''${line#running: }"
-          cc=$1
-          shift
-          flags=
-          while [ $# -gt 0 ]; do
-            case $1 in
-              -o | -c) shift 2 ;;
-              *) flags="$flags $1"; shift ;;
-            esac
-          done
-          $cc $flags -dM -E -x c /dev/null | sort > $out/cc-macros
-          $cc $flags -v -c -x c /dev/null -o "$TMPDIR/probe.o" 2>&1 | grep -E '/cc1 |^COLLECT_GCC_OPTIONS' > $out/cc-driver
-        '';
       }
     );
 
@@ -118,8 +177,5 @@ pkgs.runCommand "gritlint-binaries-${release.version}"
     mkdir $out
     ${lib.concatMapStrings (target: ''
       cp ${target.package}/bin/gritlint $out/gritlint-${target.suffix}
-      for diagnostic in link-map cc-commands cc-macros cc-driver; do
-        cp ${target.package}/$diagnostic $out/gritlint-${target.suffix}.$diagnostic
-      done
     '') built}
   ''

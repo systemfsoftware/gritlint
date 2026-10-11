@@ -168,39 +168,6 @@ jobs:
             esac
           done
           exit "$status"
-      - name: Link inputs and C compilers, x86_64-linux's build against aarch64-linux's
-        if: always()
-        run: |
-          set -euo pipefail
-          ref=release/release-x86_64-linux
-          other=release/release-aarch64-linux
-          # Store paths and directories drop to the file's basename, hashes to H.
-          norm() { sed -E 's#[^ (]*/##g; s/[0-9a-f]{16,}/H/g; s/cc[A-Za-z0-9]{6}\./ccX./g' "$1"; }
-          # "output section|archive(member) or object" TAB summed input section size
-          inputs() {
-            norm "$1" | awk '
-              function hex(s,   n, i) { n = 0; s = tolower(substr(s, 3)); for (i = 1; i <= length(s); i++) n = n * 16 + index("0123456789abcdef", substr(s, i, 1)) - 1; return n }
-              function emit(size, file) { sum[out "|" file] += hex(size) }
-              /^Linker script and memory map/ { on = 1; next }
-              !on { next }
-              /^[^ ]/ { out = $1; pending = 0; next }
-              /^ [^ *]/ { pending = 0; if (NF >= 4 && $2 ~ /^0x/ && $3 ~ /^0x/) emit($3, $4); else if (NF == 1) pending = 1; next }
-              pending && NF >= 3 && $1 ~ /^0x/ && $2 ~ /^0x/ { emit($2, $3) }
-              { pending = 0 }
-              END { for (key in sum) printf "%s\t%d\n", key, sum[key] }
-            ' | LC_ALL=C sort
-          }
-          for target in linux-x64 linux-arm64; do
-            echo "=== gritlint-$target, built on x86_64-linux (<) and aarch64-linux (>)"
-            echo "--- input sections whose size differs or that one side lacks: section|input, x86_64-linux, aarch64-linux"
-            LC_ALL=C join -t "$(printf '\t')" -a 1 -a 2 -e - -o 0,1.2,2.2 \
-              <(inputs "$ref/gritlint-$target.link-map") <(inputs "$other/gritlint-$target.link-map") |
-              awk -F '\t' '$2 != $3 { n++; if (n <= 120) print } END { print n + 0, "differing tuples" }'
-            for part in cc-macros cc-driver cc-commands; do
-              echo "--- $part"
-              diff <(norm "$ref/gritlint-$target.$part" | sort) <(norm "$other/gritlint-$target.$part" | sort) | awk 'NR <= 25' || true
-            done
-          done
 
   # A change to the CLI, the engine or the packs changes what the tarball
   # reports, so it needs a changelog line even when npm/gritlint is untouched.
