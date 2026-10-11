@@ -11,17 +11,19 @@ source_commit: systemfsoftware/gritlint@5c9c2ab21
 
 # Kill the 72 missed mutants of the first full run - Plan
 
+ce-doc-review ran (4 reviewers); amendments are sub-conductor rulings (plan gate, 2026-10-11: Q1-Q5 and audit items A1-A4, under Rulings).
+
 ## Goal Capsule
 
-- **Objective:** each of the 72 mutants that full run 38092194120 (`mode=full`, at `1b0437c7a`) reported as Missed is either caught by a `gritlint_core` test that drives real input through a public entry point and asserts an outcome a consumer can see, or is put to a ruling with its argument (Q3, Q4). Each of its 5 Timeouts has a stated disposition. Mutants flagged for a ruling instead of a test: one is equivalent (Q3), four have no consumer and no non-restating assertion (Q4), and the five Timeout dispositions, of which the contested one (T-decode-17) cannot be caught by an assertion in the current layout (Q5).
-- **Means:** new and extended tests in `crates/gritlint_core/tests/` only (U1-U7). No production code changes, no change to `.cargo/mutants.toml` and no new dependency. Line numbers hold at `5c9c2ab21`: `git diff --stat 1b0437c7a 5c9c2ab21 -- crates apps Cargo.toml Cargo.lock .cargo` is empty.
-- **Proof:** a Mutants run on `main` after the merge (Q1 decides which one). It must report Caught for every Missed row of the table below that names a test, and its timeout list must hold exactly the five Timeout rows.
+- **Objective:** every one of the 72 mutants that full run 38092194120 (`mode=full`, at `1b0437c7a`) reported as Missed is resolved one of three ways. 63 are caught by a `gritlint_core` test that drives real input through a public entry point and asserts an outcome a consumer can see. 8 are deleted with the code nothing reads (Q4 names nine rows; the ninth, M-domain-03, gains a consumer and a test). One, M-engine-02, is excluded as equivalent by an anchored `exclude_re` (Q3). Q4's decision rule can move a deleted row into the tested group. The 5 Timeouts stay Timeouts, which count as detected (Q5).
+- **Means:** U0 re-pins the compound packs and enrols `mutation-discipline` (A1). U1-U7 are test files under `crates/gritlint_core/tests/`. U8 is one production commit (`refactor(core): ...`) with a patch changeset: it deletes the unread accessors and carries the refusal reason into `InvalidParamName`. U9 adds the `exclude_re` to `.cargo/mutants.toml`. Units are file-disjoint. No new dependency. Line numbers hold at `5c9c2ab21`: `git diff --stat 1b0437c7a 5c9c2ab21 -- crates apps Cargo.toml Cargo.lock .cargo` is empty. U8 shifts `domain.rs` lines, so the table's line:col is regenerated from `cargo mutants --list` after it.
+- **Proof:** the post-merge per-push Mutants run on `main`, with no manual dispatch. It is a full run because this PR changes `.cargo/mutants.toml`, a full-run trigger against the last green `main` SHA (`scripts/tools/mutants-plan.sh:6,66-72`). It must report Caught for every Missed row the table assigns a test, list neither M-engine-02 nor the deleted accessors' mutants, and hold exactly the five Timeout rows in its timeout list.
 
 ## Product Contract
 
 ### Summary
 
-Run 38092194120 tested all 475 mutants: 262 caught, 72 missed, 5 timeout and 136 unviable. Its survivor list was read from the run's `mutants.out-*` artifacts (`missed.txt`, `timeout.txt`, and the per-mutant `diff/` and `log/` files). Every survivor was then analysed against the code at `5c9c2ab21`, and its kill was argued from the mutant's diff alone, with no local mutation. 67 Missed mutants get a test. One Missed mutant (M-engine-02) is equivalent, and four (M-domain-01/03/13/14) have no consumer, so any test would restate their body (Q4). Of the 5 Timeouts, four are hang-or-identical by construction and one stays a Timeout because of how the tests are laid out (dispositions below).
+Run 38092194120 tested all 475 mutants: 262 caught, 72 missed, 5 timeout and 136 unviable. Its survivor list was read from the run's `mutants.out-*` artifacts (`missed.txt`, `timeout.txt`, and the per-mutant `diff/` and `log/` files). Every survivor was then analysed against the code at `5c9c2ab21`, and its kill was argued from the mutant's diff alone, with no local mutation. The 72 Missed mutants resolve as follows. 63 get a test. Q4 names nine rows on code nothing reads: 8 are deleted, and M-domain-03 gains a consumer (U8) and a test (U1). 1 (M-engine-02) is equivalent on every reachable input and is excluded (Q3). The 5 Timeouts stay Timeouts (Q5).
 
 ### Problem Frame
 
@@ -30,21 +32,24 @@ These mutants survived for four reasons:
 1. **The only consumer is outside the mutated package.** cargo-mutants runs only `gritlint_core`'s own tests (`--package`, cargo-mutants `book/src/workspaces.md:39-41`). The contracts below are checked today only by the `apps/gritlint` CLI, by the `crates/gritlint_bench` crate, or by Nix flake checks (`nix/gritlint-checks.nix:72-82`, schema drift). Affected: GritlintConfig::schema/schema_for_packs, report_schema, embedded_packs, executions, the ScanPlan and Execution accessors, `shell::is_file` and `engine::parse`.
 2. **The concise and summary renderers are covered only by property laws** (`tests/laws.rs`). The laws bound the line length but do not pin which bytes are kept, so 20 encode mutants stay inside them.
 3. **No test exercises the boundary.** Examples: a heading inside an example fence, two `grit` blocks, a non-rule file in `rules/`, `node_modules` inside a fixture case, a rule calling a pattern from another scope, and a frontmatter refusal whose wording is not asserted.
-4. **There is no consumer at all.** Nine accessors and renderings have no caller in the workspace (Q4).
+4. **There is no consumer at all.** Nine accessors and renderings have no caller in the workspace. Under Q4 they are deleted, not tested.
 
 ### Requirements
 
-- R1. Every row whose Run outcome is Missed and whose last column names a test is caught by that test. A Timeout row's disposition is stated in the Timeouts section; the tests it names only make that Timeout deterministic. The argument is the mutant's diff applied to the stated input, without running the mutant. Each test asserts an outcome a consumer sees: rendered output, a returned plan/execution/pack value, a refusal message, or a CLI-visible decision. It never asserts calls, never restates the implementation, and never only re-reads a fixture. One exception, ruled under Q4: for the five no-consumer accessor rows (M-domain-02/08/09/10/11), the test asserts the accessor itself. For 09/10/11 that is a parse result (the heading and the bound parameter). For 02/08 it is the Display contract that a name or path renders as itself.
-- R2. Tests use real input: tempdir trees, the committed `packs/` tree, and the committed `npm/gritlint/*.json` contracts. There are no mocks and no new fixture directories.
+- R1. Every row whose Run outcome is Missed and whose last column names a test is caught by that test. The argument is the mutant's diff applied to the stated input, without running the mutant. Each test asserts an outcome a consumer sees: rendered output, a returned plan/execution/pack value, a refusal message, or a CLI-visible decision. It never asserts calls, never restates the implementation, and never only re-reads a fixture. A Timeout row's disposition is stated in the Timeouts section, and the tests it names only make that Timeout deterministic. No test pins an accessor nothing reads (Q4).
+- R2. Tests use real input: tempdir trees, the committed `packs/` tree, and the committed `npm/gritlint/*.json` contracts. There are no mocks and no new fixture directories. Expected values come from the published contract, never from the code under test (A2, A3).
 - R3. Tests follow the current layout: one file per contract under `crates/gritlint_core/tests/`. Two files are new, `config_decode.rs` and `encode_contract.rs`, because no existing contract file owns config decoding or rendering (the other files are the ones U2, U4, U5, U6 and U7 extend). The lint header is the existing `#![allow(...)]` block.
 - R4. Every PR job stays at or under 10 minutes, measured from the jobs API on the PR head (`Nix · x86_64-linux`, `Nix · aarch64-linux`). Every added test is an in-process run over a tiny tree or a string. The one larger input is the `packs/` tree, which `bundled_packs.rs` already reads.
-- R5. A Timeout is never hidden. Each of the 5 has a disposition (Timeouts section), and none is excluded through `.cargo/mutants.toml`.
+- R5. A Timeout is never hidden. All five stay Timeouts, counted as detected, and none is excluded (Q5).
+- R6. Code nothing reads at runtime is deleted, not tested (Q4; `mutation-discipline/unkillable-survivors-are-dead-code.md`, declared from U0). Decision rule: if a deletion fails to compile, the error names the reader; that reader is the consumer, and that row gets a test through it instead. At `5c9c2ab21` no test reads `ParsedRule::title()` or `ParsedRule::params()`. A refusal reason nobody prints gets a consumer: `GritlintError::InvalidParamName` carries it, and a patch changeset records the message change.
+- R7. The equivalent mutant M-engine-02 is excluded by exactly one anchored `exclude_re` line with a comment stating why and when to remove it (Q3). `cargo mutants --list` before and after U9 differs by exactly that one name.
+- R8. The proof is the post-merge per-push run on `main` (Q1).
 
 ### Mutant table
 
-`ID` is the analysis id. Mutant names are cargo-mutants' names, relative to `crates/gritlint_core/src/`. Test names are the ones the units give.
+`ID` is the analysis id. Mutant names are cargo-mutants' names at `5c9c2ab21`, relative to `crates/gritlint_core/src/`. After U8, ce-work regenerates every surviving row's line:col from `cargo mutants --workspace --list` at the head (list only). Test names are the ones the units give.
 
-| ID | Run outcome | Mutant (file:line:col: description) | Test |
+| ID | Run outcome | Mutant (file:line:col: description) | Disposition |
 | --- | --- | --- | --- |
 | M-decide-01 | Missed | `decide.rs:174:50: replace && with \|\| in place` | U6 `a_multifile_locator_sees_only_the_files_the_rule_matched` |
 | M-decide-02 | Missed | `decide.rs:186:39: replace match guard best.0 <= candidate.0 with false in place` | U6 `a_multifile_locator_tie_goes_to_the_first_path_not_the_engine_order` |
@@ -65,22 +70,22 @@ These mutants survived for four reasons:
 | M-decode-14 | Missed | `decode.rs:723:31: replace + with * in parse_markdown` | U5 `a_heading_inside_an_example_block_stays_in_the_message` |
 | M-decode-15 | Missed | `decode.rs:723:31: replace + with - in parse_markdown` | U5 `a_heading_inside_an_example_block_stays_in_the_message` |
 | M-decode-16 | Missed | `decode.rs:735:28: replace + with * in parse_markdown` | U5 `a_markdown_rule_with_two_grit_blocks_is_refused`; U5 `a_rule_whose_example_block_precedes_the_grit_block_keeps_its_body` |
-| T-decode-17 | Timeout | `decode.rs:735:28: replace + with - in parse_markdown` | none: stays a Timeout (Q5); U5 `a_rule_whose_example_block_precedes_the_grit_block_keeps_its_body` fails fast under it, after `bundled_packs` has hung |
-| T-decode-18 | Timeout | `decode.rs:743:16: replace += with *= in parse_markdown` | none (Timeout stays, Q5) |
-| M-domain-01 | Missed | `domain.rs:49:9: replace NonEmpty<T>::is_empty -> bool with true` | none: no contract reads this value, and a test would restate the body (Q4) |
-| M-domain-02 | Missed | `domain.rs:97:9: replace <impl fmt::Display for ParamName>::fmt -> fmt::Result with Ok(Default::default())` | U7 `laws.rs properties (Q4)` |
-| M-domain-03 | Missed | `domain.rs:109:9: replace <impl fmt::Display for ParamNameRefusal>::fmt -> fmt::Result with Ok(Default::default())` | none: no contract reads this value, and a test would restate the body (Q4) |
+| T-decode-17 | Timeout | `decode.rs:735:28: replace + with - in parse_markdown` | stays a Timeout, counted as detected (Q5); U5 `a_rule_whose_example_block_precedes_the_grit_block_keeps_its_body` fails fast under it, after `bundled_packs` has hung |
+| T-decode-18 | Timeout | `decode.rs:743:16: replace += with *= in parse_markdown` | stays a Timeout, counted as detected (Q5) |
+| M-domain-01 | Missed | `domain.rs:49:9: replace NonEmpty<T>::is_empty -> bool with true` | U8 delete `NonEmpty::len` + `is_empty` if `len` has no reader; else U9 anchored `exclude_re` (`clippy::len_without_is_empty`) (Q4) |
+| M-domain-02 | Missed | `domain.rs:97:9: replace <impl fmt::Display for ParamName>::fmt -> fmt::Result with Ok(Default::default())` | U8 delete `Display for ParamName` (Q4) |
+| M-domain-03 | Missed | `domain.rs:109:9: replace <impl fmt::Display for ParamNameRefusal>::fmt -> fmt::Result with Ok(Default::default())` | U8 carries the refusal reason into `InvalidParamName`; U1 `a_pack_parameter_that_is_not_an_identifier_refuses_naming_the_key_the_config_and_the_reason` (Q4) |
 | M-domain-04 | Missed | `domain.rs:185:9: replace RuleId::scope -> &str with ""` | U5 `a_rule_cannot_call_a_pattern_declared_in_another_scope` |
 | M-domain-05 | Missed | `domain.rs:185:9: replace RuleId::scope -> &str with "xyzzy"` | U5 `a_rule_cannot_call_a_pattern_declared_in_another_scope` |
 | M-domain-06 | Missed | `domain.rs:218:9: replace <impl fmt::Display for RelPathRefusal>::fmt -> fmt::Result with Ok(Default::default())` | U7 `relpath_refusals.rs: an_absolute_path_refuses_with_the_reason` |
 | M-domain-07 | Missed | `domain.rs:298:9: replace <impl fmt::Display for ReasonCode>::fmt -> fmt::Result with Ok(Default::default())` | U6 `a_violation_carries_the_rule_path_line_and_description (extend)` |
-| M-domain-08 | Missed | `domain.rs:443:9: replace <impl fmt::Display for SourcePath>::fmt -> fmt::Result with Ok(Default::default())` | U7 `laws.rs properties (Q4)` |
-| M-domain-09 | Missed | `domain.rs:529:9: replace ParsedRule::title -> &str with ""` | U5 `an_enabled_pack_loads_its_rules_under_its_namespace (extend; Q4)` |
-| M-domain-10 | Missed | `domain.rs:529:9: replace ParsedRule::title -> &str with "xyzzy"` | U5 `an_enabled_pack_loads_its_rules_under_its_namespace (extend; Q4)` |
-| M-domain-11 | Missed | `domain.rs:559:9: replace ParsedRule::params -> &BTreeMap<ParamName, String> with Box::leak(Box::new(BTreeMap::new()))` | U5 `an_enabled_pack_loads_its_rules_under_its_namespace (extend; Q4)` |
+| M-domain-08 | Missed | `domain.rs:443:9: replace <impl fmt::Display for SourcePath>::fmt -> fmt::Result with Ok(Default::default())` | U8 delete `Display for SourcePath` (Q4) |
+| M-domain-09 | Missed | `domain.rs:529:9: replace ParsedRule::title -> &str with ""` | U8 delete `ParsedRule::title` and the `title` field (Q4) |
+| M-domain-10 | Missed | `domain.rs:529:9: replace ParsedRule::title -> &str with "xyzzy"` | U8 delete `ParsedRule::title` and the `title` field (Q4) |
+| M-domain-11 | Missed | `domain.rs:559:9: replace ParsedRule::params -> &BTreeMap<ParamName, String> with Box::leak(Box::new(BTreeMap::new()))` | U8 delete the `ParsedRule::params` accessor (Q4) |
 | M-domain-12 | Missed | `domain.rs:593:49: replace && with \|\| in ParsedRule::library_against` | U5 `a_rule_cannot_call_a_pattern_declared_in_another_scope` |
-| M-domain-13 | Missed | `domain.rs:755:9: replace IgnoreGlobs::is_empty -> bool with false` | none: no contract reads this value, and a test would restate the body (Q4) |
-| M-domain-14 | Missed | `domain.rs:755:9: replace IgnoreGlobs::is_empty -> bool with true` | none: no contract reads this value, and a test would restate the body (Q4) |
+| M-domain-13 | Missed | `domain.rs:755:9: replace IgnoreGlobs::is_empty -> bool with false` | U8 delete `IgnoreGlobs::is_empty` (Q4) |
+| M-domain-14 | Missed | `domain.rs:755:9: replace IgnoreGlobs::is_empty -> bool with true` | U8 delete `IgnoreGlobs::is_empty` (Q4) |
 | M-domain-15 | Missed | `domain.rs:811:9: replace ScanPlan::files_selected -> usize with 0` | U6 `the_plan_counts_its_selected_files_and_rules` |
 | M-domain-16 | Missed | `domain.rs:811:9: replace ScanPlan::files_selected -> usize with 1` | U6 `the_plan_counts_its_selected_files_and_rules` |
 | M-domain-17 | Missed | `domain.rs:816:9: replace ScanPlan::rule_count -> usize with 0` | U6 `the_plan_counts_its_selected_files_and_rules` |
@@ -106,19 +111,19 @@ These mutants survived for four reasons:
 | M-encode-10 | Missed | `encode.rs:215:86: replace + with - in concise_line` | U3 `a_concise_line_cuts_the_start_of_a_long_path_keeping_the_file_name` |
 | M-encode-11 | Missed | `encode.rs:220:5: replace one_line -> String with "xyzzy".into()` | U3 `a_concise_line_normalises_whitespace_and_renders_whole_under_its_byte_budget` |
 | M-encode-12 | Missed | `encode.rs:224:5: replace cut_end -> String with String::new()` | U3 `a_concise_line_normalises_whitespace_and_renders_whole_under_its_byte_budget` |
-| T-encode-13 | Timeout | `encode.rs:229:13: replace -= with /= in cut_end` | U3 `a_concise_line_never_splits_a_multibyte_character` |
+| T-encode-13 | Timeout | `encode.rs:229:13: replace -= with /= in cut_end` | stays a Timeout, counted as detected (Q5); forced every run by U3 `a_concise_line_never_splits_a_multibyte_character` |
 | M-encode-14 | Missed | `encode.rs:235:5: replace cut_start -> String with "xyzzy".into()` | U3 `a_concise_line_cuts_the_start_of_a_long_path_keeping_the_file_name` |
 | M-encode-15 | Missed | `encode.rs:235:5: replace cut_start -> String with String::new()` | U3 `a_concise_line_cuts_the_start_of_a_long_path_keeping_the_file_name` |
 | M-encode-17 | Missed | `encode.rs:238:32: replace - with / in cut_start` | U3 `a_concise_line_cuts_the_start_of_a_long_path_keeping_the_file_name` |
-| T-encode-16 | Timeout | `encode.rs:238:32: replace - with + in cut_start` | U3 `a_concise_line_cuts_the_start_of_a_long_path_keeping_the_file_name` |
+| T-encode-16 | Timeout | `encode.rs:238:32: replace - with + in cut_start` | stays a Timeout, counted as detected (Q5); forced every run by U3 `a_concise_line_cuts_the_start_of_a_long_path_keeping_the_file_name` |
 | M-encode-18 | Missed | `encode.rs:239:11: delete ! in cut_start` | U3 `a_concise_line_cuts_the_start_of_a_long_path_keeping_the_file_name` |
 | M-encode-20 | Missed | `encode.rs:240:15: replace += with -= in cut_start` | U3 `a_concise_line_never_splits_a_multibyte_character` |
-| T-encode-19 | Timeout | `encode.rs:240:15: replace += with *= in cut_start` | U3 `a_concise_line_never_splits_a_multibyte_character` |
+| T-encode-19 | Timeout | `encode.rs:240:15: replace += with *= in cut_start` | stays a Timeout, counted as detected (Q5); forced every run by U3 `a_concise_line_never_splits_a_multibyte_character` |
 | M-encode-21 | Missed | `encode.rs:336:5: replace table_cell -> String with "xyzzy".into()` | U3 `a_github_summary_row_escapes_pipes_backslashes_and_newlines` |
 | M-encode-22 | Missed | `encode.rs:341:5: replace render_fixtures -> String with "xyzzy".into()` | U4 `a_pack_with_a_bad_and_a_good_case_passes (extend)`; U4 `a_bad_case_that_yields_no_finding_names_the_rule_and_the_case (extend)` |
 | M-encode-23 | Missed | `encode.rs:341:5: replace render_fixtures -> String with String::new()` | U4 `a_pack_with_a_bad_and_a_good_case_passes (extend)`; U4 `a_bad_case_that_yields_no_finding_names_the_rule_and_the_case (extend)` |
 | M-engine-01 | Missed | `engine.rs:218:5: replace parse -> bool with false` | U7 `engine_contract.rs: a_file_with_syntax_errors_still_parses` |
-| M-engine-02 | Missed | `engine.rs:218:5: replace parse -> bool with true` | none (equivalent, Q3) |
+| M-engine-02 | Missed | `engine.rs:218:5: replace parse -> bool with true` | U9 anchored `exclude_re` (Q3: equivalent) |
 | M-error-01 | Missed | `error.rs:121:9: replace <impl std::fmt::Display for FrontmatterProblem>::fmt -> std::fmt::Result with Ok(Default::default())` | U5 `a_rule_without_valid_frontmatter_refuses_naming_the_file_and_the_key (extend)` |
 | M-shell-01 | Missed | `shell.rs:79:5: replace is_file -> bool with false` | U1 `is_file_is_true_only_for_an_existing_regular_file` |
 | M-shell-02 | Missed | `shell.rs:79:5: replace is_file -> bool with true` | U1 `is_file_is_true_only_for_an_existing_regular_file` |
@@ -128,53 +133,67 @@ These mutants survived for four reasons:
 
 Logs are from `mutants.out-1-{1,36,40,44,50}/log/*.log`. cargo-mutants runs plain `cargo test` (`src/cargo.rs` `cargo_argv` adds no `--no-fail-fast`), so the test binaries run in name order (`bundled_packs`, `engine_contract`, `fixture_runner`, `laws`, ...), and the first binary that hangs turns the mutant into a Timeout.
 
-- **T-decode-17** (`decode.rs:735:28` `+` -> `-`): **stays a Timeout.** The log hangs in `bundled_packs`. Every bundled rule markdown ends with a closing fence, and the mutant re-reads the line before each fence, so the walk never passes the last one. The U5 test `a_rule_whose_example_block_precedes_the_grit_block_keeps_its_body` ends on a prose line, which turns this mutant into a fast `RuleNoGritBlock` failure: the mutant re-reads the closing fence of the ```` ```json ```` block as an opener, whose close is the `grit` block's closing fence, so the `grit` opener is skipped (cursor 5 -> 6 -> 7 -> 13 -> 14 -> 16 -> 17 on that input). It runs in `rule_loading`, after `bundled_packs` has already hung, so the run still reports Timeout. Making it Caught needs a test binary that runs before `bundled_packs` (a unit test inside `src/decode.rs`, which breaks the layout) or a bounded loop in production code. Both are rulings (Q5).
+**Ruling Q5 (confirmed):** all five stay Timeouts. A timeout means the suite did not pass on the mutant, which counts as detected. There is no `src` unit test to reorder test binaries, no production loop rewrite, and no exclusion.
+
+- **T-decode-17** (`decode.rs:735:28` `+` -> `-`): **stays a Timeout.** The log hangs in `bundled_packs`. Every bundled rule markdown ends with a closing fence, and the mutant re-reads the line before each fence, so the walk never passes the last one. The U5 test `a_rule_whose_example_block_precedes_the_grit_block_keeps_its_body` ends on a prose line, which turns this mutant into a fast `RuleNoGritBlock` failure: the mutant re-reads the closing fence of the ```` ```json ```` block as an opener, whose close is the `grit` block's closing fence, so the `grit` opener is skipped (cursor 5 -> 6 -> 7 -> 13 -> 14 -> 16 -> 17 on that input). It runs in `rule_loading`, after `bundled_packs` has already hung, so the run still reports Timeout. Under Q5 it stays that way.
 - **T-decode-18** (`decode.rs:743:16` `+=` -> `*=`): **stays a Timeout, and no assertion can catch it.** `lines[0]` is always the blanked frontmatter line (`decode.rs:237-311`, called at `:200`), so on every valid markdown rule `cursor *= 1` spins at 0. The only inputs on which it terminates have every visited line a fence, and on those it makes the same transitions as `+= 1`. So it either hangs or produces identical output.
 - **T-encode-13** (`encode.rs:229:13` `-=` -> `/=`), **T-encode-16** (`encode.rs:238:32` `-` -> `+`), **T-encode-19** (`encode.rs:240:15` `+=` -> `*=`): **stay Timeouts, and no assertion can catch them.** The mutated statement runs only when the index is not a char boundary, and the mutation then either leaves the index unchanged (`/= 1`, `*= 1`) or moves it past the end, where no boundary exists. Otherwise the output is byte-identical. Today they time out in `laws` only when proptest generates a long path or a multi-byte cut. The U3 tests `a_concise_line_cuts_the_start_of_a_long_path_keeping_the_file_name` and `a_concise_line_never_splits_a_multibyte_character` force those inputs every run. These are behaviour tests that kill other mutants in their own right, and as a side effect the three Timeouts become deterministic instead of depending on the proptest seed. `encode_contract` sorts before `laws`, so the hang moves earlier. The cost is unchanged: one per-mutant timeout each.
 
 ### Equivalent
 
-- **M-engine-02** (`engine.rs:218:5` `parse -> bool` with `true`). `engine::parse` is `language.get_parser().parse_file(..).is_some()` (`engine.rs:217-228`). It is called with the execution's language, and only for files whose language key equals the rule's (`decide.rs:297-299`, bench `breakdown.rs:152-154`). A file's language comes from its own extension (`decode.rs:703-706`). So every pair that reaches `parse` is a file parsed by its own extension's language, and a `.vue` file always arrives as Vue. At gritql `4ca2834` that path runs `MarzanoParser::parse_file` (`crates/language/src/language.rs:253-268`). It returns `None` only when tree-sitter's `parse` returns `None`/`Err`, or when `file_parsing_error` fails. `file_parsing_error` (`:510-544`) always returns `Ok`: ERROR/MISSING nodes become logs, not a failure. A native parser with a language set returns a tree for any input. The CSS and JS-like parsers do have `None` branches, but only for a `.vue` path parsed with a non-Vue language, which this pipeline cannot produce. So `parse` is constant `true` on every reachable input, and no test can tell the mutant apart. It becomes killable once a rule's language can differ from a scanned file's extension. U7's `engine_contract` test kills only its sibling M-engine-01 (`false`). The disposition is a ruling (Q3).
+- **M-engine-02** (`engine.rs:218:5` `parse -> bool` with `true`). `engine::parse` is `language.get_parser().parse_file(..).is_some()` (`engine.rs:217-228`). It is called with the execution's language, and only for files whose language key equals the rule's (`decide.rs:297-299` `Task::reads`; bench `breakdown.rs:152-154`). A file's language comes from its own extension (`decode.rs:703-706`). So every pair that reaches `parse` is a file parsed by its own extension's language, and a `.vue` file always arrives as Vue. At gritql `4ca2834` that path runs `MarzanoParser::parse_file` (`crates/language/src/language.rs:253-268`). It returns `None` only when tree-sitter's `parse` returns `None`/`Err`, or when `file_parsing_error` fails. `file_parsing_error` (`:510-544`) always returns `Ok`: ERROR/MISSING nodes become logs, not a failure. The CSS and JS-like parsers do have `None` branches, but only for a `.vue` path parsed with a non-Vue language, which this pipeline cannot produce. So `parse` is constant `true` on every reachable input. U7's `engine_contract` test kills only its sibling M-engine-01 (`false`).
+- **Ruling Q3:** exclude it with one anchored `exclude_re` in `.cargo/mutants.toml` (U9). This is the baseline row `mutation-discipline/unkillable-survivors-are-dead-code.md` allows: an equivalent mutant on live code (`crates/gritlint_bench/src/breakdown.rs:154` reads it) that no rewrite removes, since returning `()` or an `Option` only creates a new unkillable mutant.
 
 ### Acceptance Examples
 
 - AE1. **Covers R1.** Given the U6 tie test, with `a/package.json` and `a/tsconfig.json` both `{\n  "probe": 1,\n  "vite": "1",\n  "compilerOptions": {}\n}\n` and SIBLING_JOIN with `locate: `"probe": $_``, when scanned, then the location is `local/join a/package.json:2:3-2:13`. Under M-decide-02 it would be `a/tsconfig.json:2:3-2:13`, because the engine returns results sorted (gritql `crates/core/src/problem.rs:330` `results.sort()`; `MatchResult`/`Match` derive `Ord` in field order messages, variables, source_file, ...; `api.rs:14-36,346-368`). With identical contents, messages, variables and ranges are equal, so `source_file` decides, and the mutant's fold keeps the last result.
 - AE2. **Covers R1.** Given U1's schema test, when `GritlintConfig::schema_for_packs(&decode::embedded_packs(<packs/ as EmbeddedFile, as apps/gritlint/src/main.rs:186-197 builds them>))` is pretty-printed with a trailing newline, then it equals `npm/gritlint/configuration_schema.json` byte for byte, which is what `gritlint schema` prints (`main.rs:104-114`).
-- AE3. **Covers R5.** Given the post-merge proof run (Q1), when it finishes, then its summary shows no test-assigned row as Missed, the Missed list holds only M-engine-02 and the Q4 rows, and the timeout list holds exactly the five Timeout rows.
+- AE3. **Covers R5, R7, R8.** Given the post-merge per-push Mutants run on `main` (a full run, Q1), when it finishes, then every Missed row the table assigns a test is Caught, M-engine-02 is not listed (U9), the deleted accessors' mutants are not listed (U8), and the timeout list holds exactly the five Timeout rows.
 
 ### Scope Boundaries
 
-- Test files only, under `crates/gritlint_core/tests/`. No production code, no `.cargo/mutants.toml` and no workflow change. Q2-Q5 may move a row into a production ruling. That is for the plan reviewer to decide, not ce-work.
+- Test files under `crates/gritlint_core/tests/` (U1-U7). Production code changes only in U8: the Q4 deletions and the `InvalidParamName` reason, as one `refactor(core): ...` commit with a patch changeset. `.cargo/mutants.toml` gains only U9's anchored `exclude_re` line(s). `.compound-engineering/config.yaml` changes only in U0. No workflow change.
 - No new dev-dependency. `serde_json`, `tempfile` and `proptest` are already available to the tests (`crates/gritlint_core/Cargo.toml:10-27`).
-- No local mutation of any kind: no `cargo mutants` run except `--list`, no hand-applied mutant, and no scratch edit to watch a test go red. Kills are argued by reading.
+- No local mutation of any kind. The only cargo-mutants command allowed is `--list`. No hand-applied mutant, and no scratch-copy edit to watch a test go red. Kills are argued by reading.
+- No `src` unit test to reorder test binaries, no production loop rewrite to avoid a Timeout, and no Timeout exclusion (Q5).
 - `scan_contract.rs` owns scanning and `rule_loading.rs` owns rule loading. Config decoding (`enabled_packs`, the config schema, config discovery via `shell::is_file`) and rendering (`render_concise`, `render_github_summary`, `report_schema`) have no owner, which is why `config_decode.rs` and `encode_contract.rs` are new.
 
 ### Dependencies / Assumptions
 
 - cargo-mutants 27.1.0 runs `cargo test --package gritlint_core` without `--no-fail-fast`. A failure in any test binary therefore means Caught, and a hang in an earlier binary means Timeout.
 - gritql `4ca2834` sorts `execute_files` results (`problem.rs:318-332`). AE1 relies only on the last ordering field that differs (`source_file`). If a gritql bump changes that, the U6 tie test still passes on correct code but may stop discriminating; the next full run would show M-decide-02 as Missed again (Risks).
-- `npm/gritlint/configuration_schema.json` and `report_schema.json` are the published contracts. The flake checks `gritlint-schema` (`nix/gritlint-checks.nix:72-82`) keep them equal to the CLI output today, so the U1 and U3 schema tests pass on `5c9c2ab21`.
+- `npm/gritlint/configuration_schema.json` and `report_schema.json` are the published contracts. The flake checks `gritlint-schema` (`nix/gritlint-checks.nix:72-82`) keep them equal to the CLI output, so the U1 and U3 schema tests pass on `5c9c2ab21`. U8 changes no schema.
+- U0 re-pins the compound packs to systemfsoftware `main` at `02bf9653b1ca2b0a2951baf2743bb3f70d19fc77`; `9154691d` predates `f2bfe45df4`. U0 also declares `mutation-discipline`, so from then on that pack is a declared rule cited by this plan and enforced by ce-code-review.
 
-### Outstanding Questions
+### Rulings (sub-conductor plan gate, 2026-10-11)
 
-- Q1. *(Resolve Before ce-work)* **The per-push run after the merge tests nothing.** This PR changes only `crates/gritlint_core/tests/*.rs`. A push runs `cargo mutants --in-diff` over `git diff <green> HEAD -- '*.rs'` (`.github/workflows/mutants.yml:101-107`). Tests carry no mutants, so the diff touches none, and cargo-mutants lists 0 and exits 0 (`in_diff.rs:47-57`). The plan job then starts no shard, and the run is green without having re-tested a single survivor. Options: (a) **recommended:** after the merge, root dispatches `gh workflow run mutants.yml -R systemfsoftware/gritlint --ref main -f mode=full` (the automation token gets 403 on dispatch). That is 53 shards, measured at 237 job-minutes and 52m55s wall on 38092194120, and it is the proof AE3 reads. (b) Make a change under `crates/gritlint_core/tests/` force a full run on push. Adding the directory to `FULL_RUN_TRIGGERS` is not enough: `mode()` in `scripts/tools/mutants-plan.sh` matches each trigger with `grep -qxF` against `git diff --name-only`, so only exact file paths match, and `mode()` needs a prefix match. Cost: about 237 job-minutes per such push, and it is a CI policy change. (c) Dispatch `mode=full` on `test/kill-missed-mutants` before the merge, then (a) after it. A wrong kill argument would then be fixed in the open PR instead of in a follow-up on `main`, at the cost of a second 237-job-minute run. (a) is recommended only because the brief names the run on `main` as the proof. (c) is the safer order if one more run is acceptable.
-- Q2. *(Resolve Before ce-work)* **The concise line drops the message with no ellipsis when the prefix is 196 to 199 bytes.** `encode.rs:211` takes the message branch only when `fixed + 1 + 3 < 200`. For `fixed` in 196..=199 the location still fits, so the line is `location head` with the message silently gone. M-encode-04/05/06 move that boundary by one byte and print `location head …` instead, which arguably states the loss better. U3's `a_concise_line_at_the_message_cutoff_drops_the_message` pins today's output. Pin it (default), or rule it a bug and fix `encode.rs` first in a separate change, with the test written against the fix.
-- Q3. *(Ruling)* M-engine-02 is equivalent (section above). Leave it Missed and record it, or exclude it in `.cargo/mutants.toml` (`exclude_re`). This plan does neither.
-- Q4. *(Ruling)* **Nine mutants sit on public API with no caller in the workspace:** M-domain-01 `NonEmpty::is_empty`, M-domain-02 `ParamName` Display, M-domain-03 `ParamNameRefusal` Display (every caller discards it: `decode.rs:114`, `:489`, `:591` `map_err(|_| ..)`), M-domain-08 `SourcePath` Display, M-domain-09/10 `ParsedRule::title`, M-domain-11 `ParsedRule::params`, and M-domain-13/14 `IgnoreGlobs::is_empty`. The plan treats them in two groups:
-  - *Tested by default (five):* M-domain-02/08 get a Display round trip (a name or path renders as itself, U7). M-domain-09/10/11 get U5's accessor assertions (the parsed heading and the bound parameter).
-  - *No test (four):* M-domain-01 (the body is the literal `false`, `domain.rs:48-50`), M-domain-13/14 (the body is `self.0.is_empty()`, `domain.rs:753-756`) and M-domain-03 (a message nobody prints). Any assertion on these restates the mutated line, so the hard rule against restating the implementation rules it out.
-  - Options for the four: (a) **recommended:** delete what nothing reads, or make it unconstructable, per `mutation-discipline/unkillable-survivors-are-dead-code.md`. That pack sits in the same pinned compound-packs source but is not declared in `.compound-engineering/config.yaml`, so it is cited here as evidence, not as a declared rule. Concretely: delete `IgnoreGlobs::is_empty`; drop `NonEmpty::len`/`is_empty` if nothing calls `len`, and otherwise keep `is_empty` and record it; carry the refusal reason into `InvalidParamName`'s message, which gives M-domain-03 a consumer and a test. These are public-surface changes needing a changeset, made in a separate production change, not in this test-only PR. `NonEmpty::is_empty` cannot be dropped alone while `len` exists (`clippy::len_without_is_empty` under `clippy::all = deny`, `Cargo.toml:47`). (b) Leave them Missed and record them, as M-engine-02 is under Q3. (c) Pin them anyway (rejected above).
-- Q5. *(Ruling)* The Timeout dispositions above, in particular whether T-decode-17 should become Caught through a `src/decode.rs` unit test or a bounded loop. Recommended: leave all five as Timeouts.
+- Q1. **The proof run is the post-merge per-push Mutants run on `main`, as a full run, with no manual dispatch.** This PR changes `.cargo/mutants.toml` (U9), and `scripts/tools/mutants-plan.sh:6,66-72` makes that file a full-run trigger against the last green `main` SHA (`5c9c2ab21`). Rejected: (b) a prefix trigger for `crates/gritlint_core/tests/`, which would cost about 234 job-minutes on every test-only push; (c) a pre-merge branch dispatch, because a tests-only PR cannot regress `main`, a wrong kill argument becomes a follow-up test, and heavy runs stay postsubmit. Fallback, only if the root overrules Q3 (so `.cargo/mutants.toml` does not change): root dispatches `gh workflow run mutants.yml -R systemfsoftware/gritlint --ref main -f mode=full` after the merge.
+- Q2. **Pin today's output.** KTD24 (`docs/plans/2026-10-10-1309-feat-gritlint-standalone-plan.md:192`) cuts the message first, then the start of the path. At `fixed` >= 196 the message is cut to zero bytes and branch 3 runs, the same branch every long-path line takes. That is the stated contract, not a bug, and U3's test doc comment says so.
+- Q3. **Exclude M-engine-02** with one anchored `exclude_re` (U9; Equivalent section).
+- Q4. **Delete what nothing reads, all nine rows, with no exception.** A test on an accessor nothing reads pins dead code, and `mutation-discipline/unkillable-survivors-are-dead-code.md` says delete it when nothing reads it at runtime. U8 deletes:
+  - `ParsedRule::title`, and the `title` field if it is then unread;
+  - the `ParsedRule::params` accessor;
+  - `Display for ParamName` and `Display for SourcePath`;
+  - `IgnoreGlobs::is_empty`;
+  - `NonEmpty::len` and `NonEmpty::is_empty` together, if `len` has no reader.
+
+  Decision rule (R6): a deletion that fails to compile names its reader, and that row gets a test through the reader instead. If `NonEmpty::len` has a reader, both stay, and M-domain-01 gets its own anchored `exclude_re` line in U9 citing `clippy::len_without_is_empty`. For `ParamNameRefusal`, the refusal reason is carried into `GritlintError::InvalidParamName` (`error.rs:36-37`) so the CLI prints why. U1's refusal test asserts that the message names the key, the config and the reason. A patch changeset records the message change. All of this is in this PR as its own commit, not a separate PR.
+- Q5. **Confirmed.** All five Timeouts stay Timeouts (Timeouts section).
+- A1. The first commit of the PR is U0.
+- A2. U3 writes 200 and the 3-byte ellipsis as literals from the published contract and never imports the encode constants.
+- A3. U2 compares each pack's sources with the **unfiltered** listing of `packs/<pack>/rules/`. At `5c9c2ab21` that is 15 `.md` files and nothing else, so a non-rule file added there later fails the test.
+- A4. The Mutant identity gate (Verification Contract).
 
 ## Planning Contract
 
 ### Key Technical Decisions
 
-- KTD1. **Oracles are committed contracts and the real tree, never a recomputation.** U1 compares the config schema with `npm/gritlint/configuration_schema.json`, and U3 compares the report schema with `report_schema.json`. U2 compares each pack's decoded sources with a directory listing of `packs/<pack>/rules/`, and never re-applies the `starts_with && is_rule_file` filter it is testing (`schema-laws/tests-own-no-schemas`, `boundary-testing/real-system-oracles`).
+- KTD1. **Oracles are committed contracts and the real tree, never a recomputation.** U1 compares the config schema with `npm/gritlint/configuration_schema.json`, and U3 compares the report schema with `report_schema.json`. U2 compares each pack's decoded sources with the unfiltered directory listing of `packs/<pack>/rules/`, and never re-applies the `starts_with && is_rule_file` filter it is testing (A3). U3's 200-byte budget and 3-byte ellipsis are literals from `npm/gritlint/README.md:86` (A2) (`schema-laws/tests-own-no-schemas`, `boundary-testing/real-system-oracles`).
 - KTD2. **Enter at the public pipeline phases.** Tests call `shell::walk/read_tree/read_rule_sources/read_sources`, `decode::*`, `decide::plan/scan/executions/run_fixtures` and `encode::render_*`, as `main.rs` and the bench do (`cell-architecture/sandwich-phase-order`). There are no mocks and no private-function tests (`boundary-testing/no-mocks-on-internal-glue`).
-- KTD3. **Assert what a consumer reads.** Where a mutant changes both a no-consumer accessor and a consumer-visible value, assert the visible value. For example, M-decode-14/15 assert `ParsedRule::message()` (the rule description shown in reports), not `title()`.
+- KTD3. **Assert what a consumer reads.** For example, M-decode-14/15 assert `ParsedRule::message()` (the rule description shown in reports), not the title, which U8 deletes.
 - KTD4. **The M-decide-02 test does not depend on engine order.** The subagent's draft (three bubbles, `aaa/mmm/zzz` files with cross-named values) relied on how gritql orders `variables`. The existing test at `scan_contract.rs:545` shows why that fails: under `results.sort()` the `tsconfig.json` match (probe on line 2) sorts before `package.json` (probe on line 3), so "last wins" and "first path wins" coincide and the mutant survived. Byte-identical files make every field before `source_file` equal (AE1), so the mutant's choice is forced to the larger path (`boundary-testing/pin-dependency-semantics`: the dependency assumption is stated in the test's doc comment).
 - KTD5. **One test per behaviour, not per mutant.** U2's single embedded-pack test kills seven. U6's executions test kills four. U3's long-path test kills six and forces one Timeout.
+- KTD6. **Dead code is deleted, and the compiler finds the consumer** (`mutation-discipline/unkillable-survivors-are-dead-code.md`, declared from U0). U8 deletes each unread accessor. A compile error names a reader, which turns that row into a test through the reader. An equivalent mutant on live code gets one anchored, commented `exclude_re` line and nothing broader (U9).
 
 ### Risks
 
@@ -182,31 +201,37 @@ Logs are from `mutants.out-1-{1,36,40,44,50}/log/*.log`. cargo-mutants runs plai
 | --- | --- | --- |
 | A new test hangs under a mutant that a later binary catches today | That mutant moves from Caught to Timeout | Only U3's two cut tests can hang (in the three loops above, which are already Timeouts), and U5's T-decode-17 input fails fast. The post-merge full run's timeout list is compared with the five rows (AE3). |
 | A gritql bump changes result ordering | The M-decide-02 test passes but stops discriminating | The doc comment names the assumption. The next full run shows M-decide-02 Missed. |
-| Q2 rules the 196-byte drop a bug | U3's boundary test pins wrong output | Q2 is Resolve Before ce-work. |
+| A Q4 deletion has a reader outside the workspace | A downstream consumer of `gritlint_core` breaks | `gritlint_core` is not published on its own (the launcher is the versioned surface), and the patch changeset records the message change. A reader inside the workspace stops the deletion at compile time (R6). |
+| The `exclude_re` matches more than M-engine-02 | A killable mutant is silently skipped | The regex is anchored on file, line:col shape and the full description, and U9 checks that `--list` loses exactly one name. |
 | A kill argument is wrong (no local mutation is allowed) | The proof run still shows that mutant Missed | Every argument is written next to its test in U1-U7. A Missed row in the proof run is fixed by a follow-up test. No retry by hand-mutation. |
 
 ## Implementation Units
 
-Each unit owns one to three test files. The units do not touch each other's files, so they can run in parallel in ce-work. Helpers: reuse the target file's own `write`/`rule`/`located_rule`/`plan`/`scan`/`locations`/`make_pack`/`sources`/`ids`/`run_fixtures`. Where U1 and U3 need the same helper as an existing file, they copy it rather than create a shared module, because each `tests/*.rs` is its own crate. All IDs refer to the mutant table.
+Commit order: U0 first, then U8 (its own `refactor(core): ...` commit), then U1-U7 and U9. The units are file-disjoint. U1's refusal test depends on U8's message. After U8, regenerate the table's line:col from `cargo mutants --workspace --list` at the head (list only). Helpers: reuse the target file's own `write`/`rule`/`located_rule`/`plan`/`scan`/`locations`/`make_pack`/`sources`/`ids`/`run_fixtures`. Where U1 and U3 need the same helper as an existing file, they copy it rather than create a shared module, because each `tests/*.rs` is its own crate. All IDs refer to the mutant table.
+
+### U0. Compound packs re-pin and enrolment (`.compound-engineering/config.yaml`)
+
+- Set `ref` to `02bf9653b1ca2b0a2951baf2743bb3f70d19fc77` (current systemfsoftware `main`) and add `mutation-discipline` to `pack:`, giving `[boundary-testing, cell-architecture, mutation-discipline, package-topology, schema-laws]`. #7 left the pack out only because the repo had no mutation reports yet. This is the first commit of the PR (A1).
+- Check: the ce packs resolver (`packs-resolve.py`) resolves five roots with no errors.
 
 ### U1. Config decoding and config discovery (`tests/config_decode.rs`, new)
 
-- `the_configuration_schema_is_the_committed_schema`: read `packs/` with `shell::read_tree`, map each file to `EmbeddedFile::new(<relative path with '/'>, contents)` as `main.rs:186-197` does, then `serde_json::to_string_pretty(&GritlintConfig::schema_for_packs(&decode::embedded_packs(&files)?))` + `"\n"` == `include_str!("../../../npm/gritlint/configuration_schema.json")`. Kills M-decode-01 (`schema()` -> `true` leaves no `properties` to extend) and M-decode-02.
+- `the_configuration_schema_is_the_committed_schema`: read `packs/` with `shell::read_tree`, map each file to `EmbeddedFile::new(<relative path with '/'>, contents)` as `main.rs:186-197` does, then `serde_json::to_string_pretty(&GritlintConfig::schema_for_packs(&decode::embedded_packs(&files)?))` + `"\n"` == `include_str!("../../../npm/gritlint/configuration_schema.json")`. Kills M-decode-01 (`schema()` -> `Default::default()` leaves no `properties` to extend) and M-decode-02.
 - `a_config_pack_entry_becomes_a_typed_pack_name_and_parameters`: `GritlintConfig::parse(r#"{"packs": {"npm-provenance": {"repositoryUrl": "https://example.com/repo"}}}"#)`, then `decode::enabled_packs(&config, Path::new("gritlint.json"))` is one entry `npm-provenance` -> {`repositoryUrl` -> the URL}. Kills M-decode-03.
-- `a_pack_parameter_that_is_not_an_identifier_refuses_naming_the_key_and_the_config`: the same config with key `not-a-name` returns `GritlintError::InvalidParamName`, whose `to_string()` names `not-a-name` and `gritlint.json`. Kills M-decode-03 from the refusal side (`schema-laws/refusals-beside-generated-laws`).
+- `a_pack_parameter_that_is_not_an_identifier_refuses_naming_the_key_the_config_and_the_reason` (after U8): the same config with key `not-a-name` returns `GritlintError::InvalidParamName`, whose `to_string()` names `not-a-name`, `gritlint.json` and the reason `the name is not a GritQL identifier`, written as a literal. Kills M-decode-03 from the refusal side (`schema-laws/refusals-beside-generated-laws`) and M-domain-03.
 - `is_file_is_true_only_for_an_existing_regular_file`: in a tempdir, a written `gritlint.json` is true; the directory itself, an absent path, and the file after `fs::remove_file` are all false. This is the CLI's config-discovery decision (`main.rs:122`). Kills M-shell-01/02.
 
 ### U2. Bundled packs (`tests/bundled_packs.rs`, extend)
 
-- `every_bundled_pack_decodes_into_its_committed_rule_files`: decode the same `EmbeddedFile` list as U1. Assert the pack names are `[cell-architecture, npm-provenance, source-resolution, typecheck-build-mode]` (the `packs/` directories). For each pack, `sources()` paths equal the sorted `fs::read_dir(packs/<pack>/rules)` entries with extension `md`/`grit`, prefixed `<pack>/rules/`. Each source's `text()` equals the file's bytes, and each `required_params()` equals its `pack.json` `requiredParams`. Kills M-decode-04 (no packs), M-decode-05 (the first non-manifest file is parsed as the manifest, so `PackManifestParse`), M-decode-06 (other packs' rules and READMEs leak in), M-domain-24/25 (no path has a `/`, so no pack) and M-domain-26/27 (manifest contents `""`/`"xyzzy"` fail to parse).
+- `every_bundled_pack_decodes_into_its_committed_rule_files`: decode the same `EmbeddedFile` list as U1. Assert the pack names are `[cell-architecture, npm-provenance, source-resolution, typecheck-build-mode]` (the `packs/` directories). For each pack, `sources()` paths equal the **unfiltered**, sorted `fs::read_dir(packs/<pack>/rules)` listing, prefixed `<pack>/rules/`: no extension filter (A3; 15 `.md` files at `5c9c2ab21`). Each source's `text()` equals the file's bytes, and each `required_params()` equals its `pack.json` `requiredParams`. Kills M-decode-04 (no packs), M-decode-05 (the first non-manifest file is parsed as the manifest, so `PackManifestParse`), M-decode-06 (other packs' rules and READMEs leak in), M-domain-24/25 (no path has a `/`, so no pack) and M-domain-26/27 (manifest contents `""`/`"xyzzy"` fail to parse).
 
 ### U3. Rendering (`tests/encode_contract.rs`, new)
 
-Shared values: `Finding::new(RuleId::local(RuleName::new("concise-test")), Location::new(RelPath::new(path)?, None), message, Arc::new(Guidance::new(ReasonCode::new("generated")?, "Fix it.".into())))` and `Outcome::new(vec![finding], counts, 3)`. The head is `local/concise-test generated` (28 bytes). `CONCISE_LINE_BYTES` is 200 and `…` is 3 bytes (`encode.rs:7-9`). Every length below is derived from these, and each exact expected string is written out in the test.
+Shared values: `Finding::new(RuleId::local(RuleName::new("concise-test")), Location::new(RelPath::new(path)?, None), message, Arc::new(Guidance::new(ReasonCode::new("generated")?, "Fix it.".into())))` and `Outcome::new(vec![finding], counts, 3)`. The head is `local/concise-test generated` (28 bytes). The budget is 200 bytes a line and the ellipsis `…` is 3 bytes, written as literals from the published contract (`npm/gritlint/README.md:86`; KTD24 in `docs/plans/2026-10-10-1309-feat-gritlint-standalone-plan.md:192`). The test never imports `encode::CONCISE_LINE_BYTES` or `ELLIPSIS`: an expected value never comes from the code under test (A2). Every length below is derived from these literals, and each exact expected string is written out in the test.
 
 - `a_concise_line_normalises_whitespace_and_renders_whole_under_its_byte_budget`: message `"Fix  the\tthing now"` renders exactly `"a/package.json local/concise-test generated Fix the thing now\n1 finding(s) in 3 file(s) selected\n"`. Kills M-encode-02/03/11/12.
 - `a_concise_line_cuts_the_message_at_the_byte_budget_with_one_trailing_ellipsis`: path `a/package.json` (14 bytes) and message `"a"*300` give a 200-byte line: path, head, `"a"*153` and `…`. Kills M-encode-07/08.
-- `a_concise_line_at_the_message_cutoff_drops_the_message` (subject to Q2): path `"pkg/" + "d"*158 + ".json"` (167 bytes, so `fixed` = 196) gives exactly `path + " " + head` (196 bytes). Kills M-encode-04/05/06, whose output is `path head …` (200 bytes).
+- `a_concise_line_at_the_message_cutoff_drops_the_message` (Q2: pins today's output): path `"pkg/" + "d"*158 + ".json"` (167 bytes, so `fixed` = 196) gives exactly `path + " " + head` (196 bytes). Kills M-encode-04/05/06, whose output is `path head …` (200 bytes). Doc comment: KTD24 cuts the message first, then the start of the path. At `fixed` >= 196 the message is cut to zero bytes and the line takes branch 3, the same branch every long-path line takes, so this is the stated contract, not a bug.
 - `a_concise_line_cuts_the_start_of_a_long_path_keeping_the_file_name`: path `"d/" + "d"*244 + "/package.json"` (259 bytes) gives exactly `"…" + path[91..] + " " + head` (200 bytes). Kills M-encode-09/10/14/15/17/18 and forces T-encode-16.
 - `a_concise_line_never_splits_a_multibyte_character`: (a) path `a/package.json` and message `"a"*152 + "é" + "z"*50` give the 199-byte line ending `"a"*152 + "…"`; (b) path `"pkg/" + "d"*77 + "é" + "d"*167` gives `"…" + path[83..] + " " + head`. Kills M-encode-20 and forces T-encode-13 and T-encode-19.
 - `a_github_summary_row_escapes_pipes_backslashes_and_newlines`: path `a/|weird|.json`, message `"Fix the\n|table| \\ row"`, counts `[local/concise-test -> 2]`: `render_github_summary` equals the exact markdown, with `\|` and `\\` escaped and the newline collapsed. Kills M-encode-21 (and M-encode-11 again).
@@ -229,7 +254,7 @@ Shared values: `Finding::new(RuleId::local(RuleName::new("concise-test")), Locat
 - `a_rule_cannot_call_a_pattern_declared_in_another_scope`: pack `shared` rule `helper.grit` declares and uses `pattern shared_helper()`; consumer `caller.grit` calls `shared_helper()`. `load_rules` refuses with `RuleCompile`, whose message names `local/caller`. Kills M-domain-04/05/12. The assertion names `local/caller` because under M-domain-12 each rule also self-includes its own body, so a bare `is_err()` could pass for the wrong rule.
 - `a_consumer_directory_loads_nested_rules_but_never_a_fixtures_subtree`: `consumer/nested/deep.grit` and `consumer/fixtures/hidden.grit` load as `[local/deep]`. Kills M-shell-03.
 - Extend `a_rule_without_valid_frontmatter_refuses_naming_the_file_and_the_key`: per row, also assert the problem text: `is missing`, `is repeated`, `has no value`, ``is unknown; the keys are `reasonCode`, `nextAction`, `locate` ``, and ``must be lowercase kebab-case, such as `missing-provenance` ``. Kills M-error-01.
-- *(Q4)* Extend `an_enabled_pack_loads_its_rules_under_its_namespace`: `title()` == `React dependency`, and `params()[condition]` is the bound value. Kills M-domain-09/10/11.
+
 
 ### U6. Scanning (`tests/scan_contract.rs`, extend)
 
@@ -240,23 +265,45 @@ Shared values: `Finding::new(RuleId::local(RuleName::new("concise-test")), Locat
 - `a_multifile_locator_sees_only_the_files_the_rule_matched`: `a/extra.json` `{"probe": 1}`, `a/package.json` `{"vite": "1"}`, `a/tsconfig.json` `{"compilerOptions": {}}`, SIBLING_JOIN with `locate: `"probe": $_``; locations are `["local/join a/package.json"]` with no range. Kills M-decide-01 (under the mutant, `extra.json` reaches the locator and takes the finding).
 - `a_multifile_locator_tie_goes_to_the_first_path_not_the_engine_order`: AE1. Kills M-decide-02 (KTD4).
 
-### U7. Laws, refusals, engine (`tests/laws.rs`, `tests/relpath_refusals.rs`, `tests/engine_contract.rs`, extend)
+### U7. Refusals and engine (`tests/relpath_refusals.rs`, `tests/engine_contract.rs`, extend)
 
 - `relpath_refusals.rs` `an_absolute_path_refuses_with_the_reason`: `decode::select_files(vec!["/etc/passwd.json".into()], Path::new("/tmp/gritlint-root"))` gives `GritlintError::RelPath`, whose `to_string()` contains `the path is absolute`, the reason the CLI prints (`error.rs:75`). Kills M-domain-06.
-- `engine_contract.rs` `a_file_with_syntax_errors_still_parses`: `engine::parse` of `{"a": 1}` and of the existing malformed fixture are both `true`, matching the diagnostics contract in `malformed_json_yields_a_parse_diagnostic_that_names_the_file`. Kills M-engine-01 only (M-engine-02 is equivalent).
-- *(Q4)* `laws.rs` properties: for any identifier `s` matching `[A-Za-z_][A-Za-z0-9_]{0,15}`, `ParamName::new(s)?.to_string() == s` (M-domain-02). For any relative path `p`, `SourcePath::new(p).to_string() == p.display().to_string()` (M-domain-08).
+- `engine_contract.rs` `a_file_with_syntax_errors_still_parses`: `engine::parse` of `{"a": 1}` and of the existing malformed fixture are both `true`, matching the diagnostics contract in `malformed_json_yields_a_parse_diagnostic_that_names_the_file`. Kills M-engine-01 only (M-engine-02 is equivalent and excluded by U9).
+
+### U8. Delete unread code; the refusal reason reaches the CLI (`crates/gritlint_core/src/{domain,decode,error}.rs`, `.changeset/`)
+
+One commit, `refactor(core): ...`, landing before U1's refusal test.
+
+- Delete `ParsedRule::title`. If the `title` field is then unread, delete it and its constructor argument. `parse_markdown` keeps finding the title line, because the message excludes it (M-decode-14/15 assert `message()`). Kills M-domain-09/10 by deletion.
+- Delete the `ParsedRule::params` accessor. `engine_parameters()` and `with_params()` read the field directly. Kills M-domain-11 by deletion.
+- Delete `impl Display for ParamName` and `impl Display for SourcePath`. Kills M-domain-02/08 by deletion.
+- Delete `IgnoreGlobs::is_empty`. Kills M-domain-13/14 by deletion.
+- Delete `NonEmpty::len` and `NonEmpty::is_empty` together if `len` has no reader. If it has one, keep both, and U9 adds M-domain-01's own anchored `exclude_re` citing `clippy::len_without_is_empty`.
+- `GritlintError::InvalidParamName` gains the refusal (`reason: ParamNameRefusal`), and its message names the key, the config and the reason. The three `map_err(|_| ..)` sites (`decode.rs:114`, `:489`, `:591`) pass the refusal through. `ParamNameRefusal`'s Display now has a consumer, and U1's refusal test kills M-domain-03.
+- `.changeset/<name>.md`: `"@systemfsoftware/gritlint": patch`, describing the clearer refusal message.
+- Decision rule (R6): a deletion that fails to compile names its reader. That row then keeps its code and gets a test through the reader, and the table and this unit are updated in the same commit.
+- After the commit, regenerate the table's line:col from `cargo mutants --workspace --list` at the head (list only).
+
+### U9. Exclude the equivalent mutant (`.cargo/mutants.toml`)
+
+- Add one anchored `exclude_re`, for example `'engine\.rs:[0-9]+:[0-9]+: replace parse -> bool with true$'`, with a comment above it: equivalent on every reachable input (gritql `4ca2834` `crates/language/src/language.rs:253-268` and `:510-544`; an execution only pairs a file with its own extension's language, `decide.rs` `Task::reads`); remove the line when a rule's language can differ from a scanned file's extension.
+- Only if U8 keeps `NonEmpty::len`: a second anchored line for M-domain-01 (`replace NonEmpty<T>::is_empty -> bool with true$`), with its comment citing `clippy::len_without_is_empty`.
+- Check with `cargo mutants --list` only: before and after, the listings differ by exactly the excluded name(s).
 
 ## Verification Contract
 
 | Gate | Command or check | Proves |
 | --- | --- | --- |
-| Rust gate | `nix flake check` on the PR (CI `Nix · x86_64-linux`, `Nix · aarch64-linux`): fmt, clippy `-D warnings`, `cargo test` | All new tests pass on unmutated code |
-| Mutant identity | `nix develop --command nix shell --inputs-from . nixpkgs#cargo-mutants --command cargo mutants --workspace --list` (list only, as `mutants.yml` invokes it) at the PR head: the 77 names of the table are present, with unchanged line:col | The table still names real mutants |
+| Rust gate | `nix flake check` on the PR (CI `Nix · x86_64-linux`, `Nix · aarch64-linux`): fmt, clippy `-D warnings`, `cargo test`, the schema checks | All new tests pass on unmutated code; U8 compiles with no reader left |
+| Packs | The ce packs resolver after U0: five roots, no errors | A1 |
+| Mutant identity (A4) | `nix develop --command nix shell --inputs-from . nixpkgs#cargo-mutants --command cargo mutants --workspace --list` (list only, as `mutants.yml` invokes it) at the PR head | Every test-assigned row is present (matched by function and description, with the regenerated line:col); M-engine-02 is absent; the deleted accessors' mutants are absent |
+| Exclusion | The same `--list` before and after U9 | Exactly the excluded name(s) disappear (R7) |
+| Changeset | `.changeset/` holds U8's patch intent for `@systemfsoftware/gritlint` | The refusal-message change is versioned |
 | PR job time | Jobs API wall time per PR job, recorded in the PR body | R4: every PR job at or under 10 minutes |
-| Proof | The post-merge Mutants run Q1 picks: its summary's caught/missed/timeout lists | AE3: every test-assigned Missed row Caught (Q4 may move rows to a production ruling), M-engine-02 per Q3, the five Timeouts unchanged |
+| Proof | The post-merge per-push Mutants run on `main` (full, triggered by `.cargo/mutants.toml`): its summary's caught/missed/timeout lists | AE3 |
 
 ## Definition of Done
 
-- One PR from `test/kill-missed-mutants` into `main`, with CI green on its head and every job measured at or under 10 minutes.
-- Q1-Q5 are ruled before ce-work starts, and the plan is updated with the rulings.
-- After the merge, the proof run Q1 names reports every test-assigned Missed row Caught. Any row still Missed is reported with its test name, not re-argued.
+- One PR from `test/kill-missed-mutants` into `main`, with CI green on its head and every job measured at or under 10 minutes. Its commits are U0 first, U8 as its own `refactor(core): ...` commit, then the tests and U9.
+- The mutant table's line:col is regenerated after U8 from `cargo mutants --list` (list only).
+- After the merge, the per-push full run on `main` reports every test-assigned Missed row Caught, lists neither M-engine-02 nor the deleted accessors' mutants, and holds exactly the five Timeout rows. Any row still Missed is reported with its test name, not re-argued.
