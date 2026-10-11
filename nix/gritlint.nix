@@ -71,6 +71,8 @@ let
       ../crates/gritlint_core
       ../crates/gritlint_bench
       ../packs
+      ../npm/gritlint/configuration_schema.json
+      ../npm/gritlint/report_schema.json
       ../vendor
     ];
   };
