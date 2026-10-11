@@ -8,9 +8,13 @@
       inputs.nixpkgs.follows = "nixpkgs";
     };
     crane.url = "github:ipetkov/crane/v0.24.0";
+    pnpm-release-management = {
+      url = "github:systemfsoftware/pnpm-release-management/b9b4a1d48cc16241b33f9afd8ab99b82b05ce04f";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
   };
 
-  outputs = { self, nixpkgs, rust-overlay, crane }:
+  outputs = { self, nixpkgs, rust-overlay, crane, pnpm-release-management }:
     let
       lib = nixpkgs.lib;
       systems = [ "x86_64-linux" "aarch64-linux" ];
@@ -33,17 +37,55 @@
         let parts = lib.splitString "." workspacePackage.rust-version;
         in lib.concatStringsSep "." (parts ++ lib.optional (builtins.length parts == 2) "0");
 
+      # The pnpm workspace is the launcher package alone; nothing else reaches
+      # the tarball build.
+      workspaceSrc = lib.fileset.toSource {
+        root = ./.;
+        fileset = lib.fileset.unions [
+          ./package.json
+          ./pnpm-workspace.yaml
+          ./pnpm-lock.yaml
+          ./npm/gritlint
+        ];
+      };
+
       gritlintFor = pkgs:
         let
           gritlint-unwrapped = pkgs.callPackage ./nix/gritlint.nix {
             craneLib = craneFor pkgs;
             version = gritlintVersion;
           };
+          gritlint-binaries = import ./nix/gritlint-static.nix {
+            inherit lib pkgs crane;
+            pkgsFor = system: import nixpkgs {
+              localSystem = pkgs.stdenv.buildPlatform.system;
+              crossSystem = system;
+              overlays = [ (import rust-overlay) ];
+            };
+            toolchainFile = ./rust-toolchain.toml;
+            release = gritlint-unwrapped;
+          };
+          own = {
+            inherit gritlint-unwrapped gritlint-binaries;
+            gritlint = pkgs.callPackage ./nix/gritlint-sandbox.nix { gritlint = gritlint-unwrapped; };
+          };
+          workspace = pnpm-release-management.lib.mkPnpmWorkspacePackages {
+            inherit pkgs;
+            src = workspaceSrc;
+            pname = "gritlint";
+            files."npm/gritlint/bin" = gritlint-binaries;
+          };
+          # The library names a member's tarball after the package, which here
+          # is `gritlint`: merged as it comes, it would replace the sandboxed CLI.
+          release = {
+            inherit (workspace) workspace-tarballs pnpm-store;
+            gritlint-tarball = workspace.gritlint;
+          };
+          shadowed = lib.attrNames (builtins.intersectAttrs own release);
         in
-        {
-          inherit gritlint-unwrapped;
-          gritlint = pkgs.callPackage ./nix/gritlint-sandbox.nix { gritlint = gritlint-unwrapped; };
-        };
+        if shadowed == [ ]
+        then own // release
+        else throw "flake.nix: release outputs ${lib.concatStringsSep ", " shadowed} shadow gritlint's own packages";
     in
     {
       packages = forEachSystem gritlintFor;
@@ -95,6 +137,12 @@
               bash ${./scripts/tools}/mutants-plan.test.sh
               touch $out
             '';
+            # A consumer's offline install of the npm tarball (R22, R23).
+            gritlint-tarball-journey = pkgs.callPackage ./nix/gritlint-tarball-journey.nix {
+              tarball = exported.gritlint-tarball;
+            };
+            # ci.yml's `changeset-intent` decision, over a scratch git history.
+            gritlint-intent-gate = pkgs.callPackage ./nix/gritlint-intent-gate.nix { };
           }
           // import ./nix/gritlint-checks.nix {
             inherit (pkgs) lib runCommand;
@@ -117,13 +165,21 @@
           };
         });
 
+      # Besides the Rust toolchain, the caller contract of
+      # pnpm-release-management's reusable workflows: they run their release
+      # tools inside this shell, which must provide node, pnpm, the `sandbox`
+      # and the store it installs from.
       devShells = forEachSystem (pkgs: {
         default = pkgs.mkShell {
           packages = [
             (rust pkgs)
             pkgs.cargo-deny
             pkgs.cargo-nextest
+            pkgs.nodejs_24
+            pkgs.pnpm_12
+            pnpm-release-management.packages.${pkgs.stdenv.hostPlatform.system}.sandbox
           ];
+          SANDBOX_PNPM_STORE = self.packages.${pkgs.stdenv.hostPlatform.system}.pnpm-store;
         };
       });
     };
