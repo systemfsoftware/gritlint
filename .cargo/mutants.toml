@@ -1,2 +1,14 @@
 examine_globs = ["crates/gritlint_core/src/**/*.rs"]
 timeout_multiplier = 1.5
+exclude_re = [
+  # Equivalent on every reachable input: an execution pairs a file only with
+  # its own extension's language (decide.rs Task::reads), and on that path
+  # gritql 4ca2834 always returns a tree (crates/language/src/language.rs:253-268,
+  # :510-544), so parse is constant true. Remove this line when a rule's
+  # language can differ from a scanned file's extension.
+  'engine\.rs:[0-9]+:[0-9]+: replace parse -> bool with true$',
+  # NonEmpty::is_empty is constant false and nothing reads it, but
+  # SelectedFiles::total reads NonEmpty::len, and clippy::len_without_is_empty
+  # requires is_empty beside a public len. Remove this line with len.
+  'domain\.rs:[0-9]+:[0-9]+: replace NonEmpty<T>::is_empty -> bool with true$',
+]
