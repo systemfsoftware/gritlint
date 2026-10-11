@@ -89,6 +89,7 @@ jobs:
         with:
           name: release-${{ matrix.system }}
           path: ${{ runner.temp }}/release/
+          if-no-files-found: error
           retention-days: 1
 
       - name: Export the unsigned store paths
@@ -145,7 +146,14 @@ jobs:
           ref=release/release-x86_64-linux
           other=release/release-aarch64-linux
           status=0
-          for file in $(cd "$ref" && ls); do
+          files=$(ls -A "$ref" "$other" | awk '!/:$/ && NF' | sort -u)
+          [ -n "$files" ] || { echo "::error::no release artifact to compare"; exit 1; }
+          for file in $files; do
+            if [ ! -f "$ref/$file" ] || [ ! -f "$other/$file" ]; then
+              echo "::error::$file is in one system's release artifact only"
+              status=1
+              continue
+            fi
             if cmp -s "$ref/$file" "$other/$file"; then continue; fi
             status=1
             echo "::error::aarch64-linux builds $file differently from x86_64-linux"

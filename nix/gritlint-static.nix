@@ -104,7 +104,12 @@ let
     postBuild = ''
       log=$GRITLINT_RUSTC_METADATA_LOG
       own() { awk -v build="$pname" -v kind="$1" '$1 == build && $2 == kind' "$log"; }
-      echo "rustc wrapper, a normalized target unit: $(own normalized | awk 'NR == 1')"
+      first=$(own normalized | awk 'NR == 1')
+      if [ -z "$first" ]; then
+        echo "rustc wrapper: no target unit was normalized in $pname" >&2
+        exit 1
+      fi
+      echo "rustc wrapper, a normalized target unit: $first"
       host=$(own passthrough | awk 'NR == 1')
       echo "rustc wrapper, a passthrough host unit: ''${host:-none rebuilt in this build}"
       shared=$(own normalized | awk '{ print $5, $4 }' | sort -u | awk '{ n[$1]++ } END { for (m in n) if (n[m] > 1) print m }')
