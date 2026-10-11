@@ -5,27 +5,34 @@ over a repository's config files.
 
 ## Install
 
+The package is the tarball the flake builds:
+
 ```sh
-npm i -D @systemfsoftware/gritlint
-npx gritlint --help
+nix build github:systemfsoftware/gritlint#gritlint-tarball
 ```
 
-The launcher ships no binary of its own. The matching platform package
-(`@systemfsoftware/gritlint-linux-x64`, `-linux-arm64`, `-win32-x64`) is an
-`optionalDependency` pinned to the same exact version, so npm installs the
-right binary for the host and the launcher executes it with the arguments it
-was given, propagating the exit code.
+That links `result` to `gritlint-<version>.tgz` in the Nix store. Install it
+from that path, which needs no registry and works offline:
 
-There is **no postinstall step**: nothing is downloaded or compiled at install
-time. Installation flags that drop optional dependencies (`--no-optional`,
-`--ignore-scripts`) leave the launcher without a binary, and it then reports the
-missing platform package by name instead of failing silently.
+```sh
+pnpm add file:$(readlink -f result)
+```
 
-The committed manifest deliberately carries **no `optionalDependencies`**: a
-committed pin on a package that does not exist yet breaks `pnpm install` for
-everyone in the workspace (pnpm#3960). `scripts/tools/gritlint/sync-version.ts
---pins` injects the three exact pins into the manifest of the publish checkout
-only; they exist on npm, never in the repository.
+The tarball carries a static `linux-x64` and `linux-arm64` binary beside a node
+launcher, and `node_modules/.bin/gritlint` runs the binary for the host with the
+arguments it was given, propagating its exit code. The launcher is plain node
+with no dependency, and there is no postinstall step: nothing is downloaded or
+compiled at install time.
+
+On any other platform the launcher starts no binary and exits 2, gritlint's
+refusal code, with:
+
+```
+gritlint: no binary for <platform>-<arch>; this package ships linux-x64 and linux-arm64
+```
+
+The manifest declares no `os` or `cpu`, so the install itself succeeds on every
+platform and only running refuses.
 
 `configuration_schema.json` in this package is the JSON Schema for
 `gritlint.json`, generated from the CLI's config types. `report_schema.json` is
@@ -89,24 +96,19 @@ stderr carries one line with a next action, the same in every format:
 
 ## Releasing
 
-This launcher rides the repository's release pipeline; it is not released on its
-own. One version applies to the Rust crates, this launcher and the generated
-platform packages, and **the launcher's version is the source of that version**.
+One version applies to the launcher and the Rust crates, and the release tooling
+keeps them in step.
 
-1. Land a change intent for `@systemfsoftware/gritlint` (`pnpm change --bump
-   minor --summary "..."`) — the launcher is a workspace package like any
-   other, so `scripts/tools/plan-release.ts` plans its release with the rest of
-   the set.
-2. The release phase opens the Release PR; `pnpm version -r` bumps this
-   manifest, and `scripts/tools/gritlint/sync-version.ts --cargo` writes the
-   same version into `[workspace.package] version` in the root `Cargo.toml`, so
-   the crates and the launcher move together in one reviewed commit.
-3. On merge, `.github/workflows/release.yml` writes a `<pkg>@vX.Y.Z` git tag for
-   each unreleased workspace version and cuts its GitHub Release from the
-   authored changelog. There is no npm publish step: the suite is distributed as
-   this repository's Nix flake outputs, consumed from a git ref (pinned by
-   `flake.lock` rev + narHash, bwrap-sandboxed), so `gritlint` is the flake-built
-   Rust CLI (`bin/gritlint`) rather than an npm download.
+1. Land a change intent under `.changeset/`: a markdown file naming the bump and
+   a summary. A pull request that changes `crates/`, `apps/` or `packs/` must add
+   one, and `ci.yml`'s `changeset-intent` job fails the PR otherwise.
+2. The reusable workflows of [`systemfsoftware/pnpm-release-management`](https://github.com/systemfsoftware/pnpm-release-management)
+   collect the accumulated intents, cut the versions and open the release PR.
+   Its `cargo` surface rewrites the root `Cargo.toml` and `Cargo.lock` alongside
+   `npm/gritlint/package.json`, so the crates and the launcher move together in
+   one reviewed commit.
+3. On merge, the release workflow tags the version and cuts its GitHub Release
+   from the authored changelog.
 
-Nothing in this repository publishes to an npm registry: there is no npm token,
-no OIDC trusted publishing, and no trusted-publisher bootstrap.
+Nothing in this repository publishes to an npm registry: the suite is
+distributed as this repository's flake outputs and the tarball the flake builds.

@@ -1,7 +1,25 @@
 {
   "name": "@systemfsoftware/gritlint",
   "version": "0.1.0",
-  "private": true,
   "description": "GritQL conventions platform: pack-driven rule runs over config files, powered by the biomejs/gritql engine.",
-  "license": "MIT"
+  "license": "MIT",
+  "bin": {
+    "gritlint": "bin/gritlint.js"
+  },
+  "files": [
+    "bin",
+    "configuration_schema.json",
+    "report_schema.json",
+    "README.md",
+    "LICENSE"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/systemfsoftware/gritlint.git",
+    "directory": "npm/gritlint"
+  },
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  }
 }
