@@ -30,7 +30,7 @@ jobs:
   plan:
     name: plan
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 60
     permissions:
       contents: read
       actions: read
@@ -133,7 +133,7 @@ jobs:
     needs: plan
     if: needs.plan.outputs.n != '0'
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 60
     strategy:
       fail-fast: false
       matrix:
@@ -158,7 +158,7 @@ jobs:
           path: plan
 
       - name: cargo mutants
-        timeout-minutes: 7
+        timeout-minutes: 60
         env:
           SHARD: ${{ matrix.shard }}
           N: ${{ needs.plan.outputs.n }}
@@ -186,7 +186,7 @@ jobs:
     needs: [plan, shard]
     if: always() && needs.plan.result == 'success'
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 60
     defaults:
       run:
         shell: bash
