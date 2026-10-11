@@ -1,7 +1,7 @@
 #![allow(clippy::expect_used, clippy::disallowed_methods)]
 
 use gritlint_core::decode::{self, GritlintConfig};
-use gritlint_core::domain::EmbeddedFile;
+use gritlint_core::domain::{EmbeddedFile, RelPath};
 use gritlint_core::shell;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -16,12 +16,11 @@ fn embedded_files() -> Vec<EmbeddedFile> {
     tree.files()
         .iter()
         .map(|file| {
-            let relative = file
-                .path()
-                .strip_prefix(tree.root())
-                .expect("a file below the packs root");
             EmbeddedFile::new(
-                relative.to_string_lossy().replace('\\', "/"),
+                RelPath::from_root(tree.root(), file.path())
+                    .expect("a file below the packs root")
+                    .as_str()
+                    .to_owned(),
                 file.contents().to_owned(),
             )
         })

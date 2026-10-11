@@ -2,7 +2,7 @@
 
 use gritlint_core::decide;
 use gritlint_core::decode;
-use gritlint_core::domain::EmbeddedFile;
+use gritlint_core::domain::{EmbeddedFile, RelPath};
 use gritlint_core::shell;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -33,7 +33,7 @@ fn committed_case_count(packs: &Path) -> usize {
 
 #[derive(serde::Deserialize)]
 struct Manifest {
-    #[serde(default, rename = "requiredParams")]
+    #[serde(rename = "requiredParams")]
     required_params: Vec<String>,
 }
 
@@ -42,12 +42,11 @@ fn embedded_files(packs: &Path) -> Vec<EmbeddedFile> {
     tree.files()
         .iter()
         .map(|file| {
-            let relative = file
-                .path()
-                .strip_prefix(tree.root())
-                .expect("a file below the packs root");
             EmbeddedFile::new(
-                relative.to_string_lossy().replace('\\', "/"),
+                RelPath::from_root(tree.root(), file.path())
+                    .expect("a file below the packs root")
+                    .as_str()
+                    .to_owned(),
                 file.contents().to_owned(),
             )
         })
