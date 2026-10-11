@@ -79,6 +79,19 @@ fn a_pack_parameter_that_is_not_an_identifier_refuses_naming_the_key_the_config_
 }
 
 #[test]
+fn an_empty_pack_parameter_name_refuses_saying_the_name_is_empty() {
+    let config = GritlintConfig::parse(r#"{"packs": {"npm-provenance": {"": "x"}}}"#)
+        .expect("parse the config");
+
+    let error = decode::enabled_packs(&config, Path::new("gritlint.json"))
+        .expect_err("an empty parameter name is refused");
+
+    let message = error.to_string();
+    assert!(message.contains("gritlint.json"), "{message}");
+    assert!(message.contains("the name is empty"), "{message}");
+}
+
+#[test]
 fn is_file_is_true_only_for_an_existing_regular_file() {
     let temp = tempfile::tempdir().expect("temp dir");
     let config = temp.path().join("gritlint.json");
