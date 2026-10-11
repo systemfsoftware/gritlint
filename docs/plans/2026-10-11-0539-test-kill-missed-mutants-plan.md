@@ -47,7 +47,7 @@ These mutants survived for four reasons:
 
 ### Mutant table
 
-`ID` is the analysis id. Mutant names are cargo-mutants' names at `5c9c2ab21`, relative to `crates/gritlint_core/src/`. After U8, ce-work regenerates every surviving row's line:col from `cargo mutants --workspace --list` at the head (list only). Test names are the ones the units give.
+`ID` is the analysis id. Mutant names are cargo-mutants' names relative to `crates/gritlint_core/src/`, with line:col regenerated after U8 from `cargo mutants --workspace --list` at `a4589f4f1` (list only). The seven rows U8 deleted keep their `5c9c2ab21` name; their mutants are absent from that listing. Test names are the ones the units give.
 
 | ID | Run outcome | Mutant (file:line:col: description) | Disposition |
 | --- | --- | --- | --- |
@@ -56,49 +56,49 @@ These mutants survived for four reasons:
 | M-decide-03 | Missed | `decide.rs:206:5: replace executions -> Result<Vec<Execution>, GritlintError> with Ok(vec![])` | U6 `an_execution_names_its_language_and_reads_only_its_own_language` |
 | M-decode-01 | Missed | `decode.rs:53:9: replace GritlintConfig::schema -> Schema with Default::default()` | U1 `the_configuration_schema_is_the_committed_schema` |
 | M-decode-02 | Missed | `decode.rs:58:9: replace GritlintConfig::schema_for_packs -> Schema with Default::default()` | U1 `the_configuration_schema_is_the_committed_schema` |
-| M-decode-03 | Missed | `decode.rs:105:5: replace enabled_packs -> Result<BTreeMap<PackName, BTreeMap<ParamName, String>>, GritlintError> with Ok(BTreeMap::new())` | U1 `a_config_pack_entry_becomes_a_typed_pack_name_and_parameters`; U1 `a_pack_parameter_that_is_not_an_identifier_refuses_naming_the_key_and_the_config` |
-| M-decode-04 | Missed | `decode.rs:144:5: replace embedded_packs -> Result<Vec<Pack>, GritlintError> with Ok(vec![])` | U2 `every_bundled_pack_decodes_into_its_committed_rule_files` |
-| M-decode-05 | Missed | `decode.rs:160:42: replace == with != in embedded_packs` | U2 `every_bundled_pack_decodes_into_its_committed_rule_files` |
-| M-decode-06 | Missed | `decode.rs:170:54: replace && with \|\| in embedded_packs` | U2 `every_bundled_pack_decodes_into_its_committed_rule_files` |
+| M-decode-03 | Missed | `decode.rs:105:5: replace enabled_packs -> Result<BTreeMap<PackName, BTreeMap<ParamName, String>>, GritlintError> with Ok(BTreeMap::new())` | U1 `a_config_pack_entry_becomes_a_typed_pack_name_and_parameters`; U1 `a_pack_parameter_that_is_not_an_identifier_refuses_naming_the_key_the_config_and_the_reason` |
+| M-decode-04 | Missed | `decode.rs:145:5: replace embedded_packs -> Result<Vec<Pack>, GritlintError> with Ok(vec![])` | U2 `every_bundled_pack_decodes_into_its_committed_rule_files` |
+| M-decode-05 | Missed | `decode.rs:161:42: replace == with != in embedded_packs` | U2 `every_bundled_pack_decodes_into_its_committed_rule_files` |
+| M-decode-06 | Missed | `decode.rs:171:54: replace && with \|\| in embedded_packs` | U2 `every_bundled_pack_decodes_into_its_committed_rule_files` |
 | M-decode-07 | Missed | `decode.rs:354:49: replace == with != in load_rules` | U5 `a_consumer_directory_with_two_rules_loads_both` |
 | M-decode-08 | Missed | `decode.rs:412:44: replace && with \|\| in rule_sources_in` | U5 `a_pack_ignores_a_non_rule_file_in_its_rules_directory` |
 | M-decode-09 | Missed | `decode.rs:442:5: replace is_scannable -> bool with true` | U6 `a_walk_returns_only_files_with_a_language_extension` |
 | M-decode-10 | Missed | `decode.rs:447:5: replace is_rule_file -> bool with true` | U5 `a_pack_ignores_a_non_rule_file_in_its_rules_directory` |
-| M-decode-11 | Missed | `decode.rs:500:44: replace && with \|\| in consumer_layout` | U4 `a_consumer_layout_ignores_a_non_rule_file_at_the_root` |
-| M-decode-12 | Missed | `decode.rs:664:5: replace skipped -> bool with false` | U4 `a_case_ignores_node_modules_and_dot_directories` |
-| M-decode-13 | Missed | `decode.rs:667:35: replace \|\| with && in skipped` | U4 `a_case_ignores_node_modules_and_dot_directories` |
-| M-decode-14 | Missed | `decode.rs:723:31: replace + with * in parse_markdown` | U5 `a_heading_inside_an_example_block_stays_in_the_message` |
-| M-decode-15 | Missed | `decode.rs:723:31: replace + with - in parse_markdown` | U5 `a_heading_inside_an_example_block_stays_in_the_message` |
-| M-decode-16 | Missed | `decode.rs:735:28: replace + with * in parse_markdown` | U5 `a_markdown_rule_with_two_grit_blocks_is_refused`; U5 `a_rule_whose_example_block_precedes_the_grit_block_keeps_its_body` |
-| T-decode-17 | Timeout | `decode.rs:735:28: replace + with - in parse_markdown` | stays a Timeout, counted as detected (Q5); U5 `a_rule_whose_example_block_precedes_the_grit_block_keeps_its_body` fails fast under it, after `bundled_packs` has hung |
+| M-decode-11 | Missed | `decode.rs:501:44: replace && with \|\| in consumer_layout` | U4 `a_consumer_layout_ignores_a_non_rule_file_at_the_root` |
+| M-decode-12 | Missed | `decode.rs:666:5: replace skipped -> bool with false` | U4 `a_case_ignores_node_modules_and_dot_directories` |
+| M-decode-13 | Missed | `decode.rs:669:35: replace \|\| with && in skipped` | U4 `a_case_ignores_node_modules_and_dot_directories` |
+| M-decode-14 | Missed | `decode.rs:725:31: replace + with * in parse_markdown` | U5 `a_heading_inside_an_example_block_stays_in_the_message` |
+| M-decode-15 | Missed | `decode.rs:725:31: replace + with - in parse_markdown` | U5 `a_heading_inside_an_example_block_stays_in_the_message` |
+| M-decode-16 | Missed | `decode.rs:737:28: replace + with * in parse_markdown` | U5 `a_markdown_rule_with_two_grit_blocks_is_refused`; U5 `a_rule_whose_example_block_precedes_the_grit_block_keeps_its_body` |
+| T-decode-17 | Timeout | `decode.rs:737:28: replace + with - in parse_markdown` | stays a Timeout, counted as detected (Q5); U5 `a_rule_whose_example_block_precedes_the_grit_block_keeps_its_body` fails fast under it, after `bundled_packs` has hung |
 | T-decode-18 | Timeout | `decode.rs:743:16: replace += with *= in parse_markdown` | stays a Timeout, counted as detected (Q5) |
 | M-domain-01 | Missed | `domain.rs:49:9: replace NonEmpty<T>::is_empty -> bool with true` | U9 anchored `exclude_re` (`clippy::len_without_is_empty`): moved by the U8 decision rule, since `len` has a reader, `SelectedFiles::total` (`domain.rs:696`, rustc E0599) (Q4) |
-| M-domain-02 | Missed | `domain.rs:97:9: replace <impl fmt::Display for ParamName>::fmt -> fmt::Result with Ok(Default::default())` | U8 delete `Display for ParamName` (Q4) |
-| M-domain-03 | Missed | `domain.rs:109:9: replace <impl fmt::Display for ParamNameRefusal>::fmt -> fmt::Result with Ok(Default::default())` | U8 carries the refusal reason into `InvalidParamName`; U1 `a_pack_parameter_that_is_not_an_identifier_refuses_naming_the_key_the_config_and_the_reason` (Q4) |
-| M-domain-04 | Missed | `domain.rs:185:9: replace RuleId::scope -> &str with ""` | U5 `a_rule_cannot_call_a_pattern_declared_in_another_scope` |
-| M-domain-05 | Missed | `domain.rs:185:9: replace RuleId::scope -> &str with "xyzzy"` | U5 `a_rule_cannot_call_a_pattern_declared_in_another_scope` |
-| M-domain-06 | Missed | `domain.rs:218:9: replace <impl fmt::Display for RelPathRefusal>::fmt -> fmt::Result with Ok(Default::default())` | U7 `relpath_refusals.rs: an_absolute_path_refuses_with_the_reason` |
-| M-domain-07 | Missed | `domain.rs:298:9: replace <impl fmt::Display for ReasonCode>::fmt -> fmt::Result with Ok(Default::default())` | U6 `a_violation_carries_the_rule_path_line_and_description (extend)` |
-| M-domain-08 | Missed | `domain.rs:443:9: replace <impl fmt::Display for SourcePath>::fmt -> fmt::Result with Ok(Default::default())` | U8 delete `Display for SourcePath` (Q4) |
-| M-domain-09 | Missed | `domain.rs:529:9: replace ParsedRule::title -> &str with ""` | U8 delete `ParsedRule::title` and the `title` field (Q4) |
-| M-domain-10 | Missed | `domain.rs:529:9: replace ParsedRule::title -> &str with "xyzzy"` | U8 delete `ParsedRule::title` and the `title` field (Q4) |
-| M-domain-11 | Missed | `domain.rs:559:9: replace ParsedRule::params -> &BTreeMap<ParamName, String> with Box::leak(Box::new(BTreeMap::new()))` | U8 delete the `ParsedRule::params` accessor (Q4) |
-| M-domain-12 | Missed | `domain.rs:593:49: replace && with \|\| in ParsedRule::library_against` | U5 `a_rule_cannot_call_a_pattern_declared_in_another_scope` |
-| M-domain-13 | Missed | `domain.rs:755:9: replace IgnoreGlobs::is_empty -> bool with false` | U8 delete `IgnoreGlobs::is_empty` (Q4) |
-| M-domain-14 | Missed | `domain.rs:755:9: replace IgnoreGlobs::is_empty -> bool with true` | U8 delete `IgnoreGlobs::is_empty` (Q4) |
-| M-domain-15 | Missed | `domain.rs:811:9: replace ScanPlan::files_selected -> usize with 0` | U6 `the_plan_counts_its_selected_files_and_rules` |
-| M-domain-16 | Missed | `domain.rs:811:9: replace ScanPlan::files_selected -> usize with 1` | U6 `the_plan_counts_its_selected_files_and_rules` |
-| M-domain-17 | Missed | `domain.rs:816:9: replace ScanPlan::rule_count -> usize with 0` | U6 `the_plan_counts_its_selected_files_and_rules` |
-| M-domain-18 | Missed | `domain.rs:816:9: replace ScanPlan::rule_count -> usize with 1` | U6 `the_plan_counts_its_selected_files_and_rules` |
-| M-domain-19 | Missed | `domain.rs:834:9: replace Execution::language -> TargetLanguage with Default::default()` | U6 `an_execution_names_its_language_and_reads_only_its_own_language` |
-| M-domain-20 | Missed | `domain.rs:838:9: replace Execution::files -> impl Iterator<Item =&InputFile> with ::std::iter::empty()` | U6 `an_execution_names_its_language_and_reads_only_its_own_language` |
-| M-domain-21 | Missed | `domain.rs:842:9: replace Execution::read -> impl Iterator<Item =&InputFile> with ::std::iter::empty()` | U6 `an_execution_names_its_language_and_reads_only_its_own_language` |
-| M-domain-22 | Missed | `domain.rs:988:9: replace CaseKind::directory -> &'static str with ""` | U4 `a_rule_with_only_good_cases_fails_as_untested (extend)` |
-| M-domain-23 | Missed | `domain.rs:988:9: replace CaseKind::directory -> &'static str with "xyzzy"` | U4 `a_rule_with_only_good_cases_fails_as_untested (extend)` |
-| M-domain-24 | Missed | `domain.rs:1134:9: replace EmbeddedFile::path -> &str with ""` | U2 `every_bundled_pack_decodes_into_its_committed_rule_files` |
-| M-domain-25 | Missed | `domain.rs:1134:9: replace EmbeddedFile::path -> &str with "xyzzy"` | U2 `every_bundled_pack_decodes_into_its_committed_rule_files` |
-| M-domain-26 | Missed | `domain.rs:1139:9: replace EmbeddedFile::contents -> &str with ""` | U2 `every_bundled_pack_decodes_into_its_committed_rule_files` |
-| M-domain-27 | Missed | `domain.rs:1139:9: replace EmbeddedFile::contents -> &str with "xyzzy"` | U2 `every_bundled_pack_decodes_into_its_committed_rule_files` |
+| M-domain-02 | Missed | `domain.rs:97:9: replace <impl fmt::Display for ParamName>::fmt -> fmt::Result with Ok(Default::default())` | Deleted in U8 (`a4589f4f1`): `Display for ParamName` (Q4) |
+| M-domain-03 | Missed | `domain.rs:103:9: replace <impl fmt::Display for ParamNameRefusal>::fmt -> fmt::Result with Ok(Default::default())` | U8 carries the refusal reason into `InvalidParamName`; U1 `a_pack_parameter_that_is_not_an_identifier_refuses_naming_the_key_the_config_and_the_reason` (Q4) |
+| M-domain-04 | Missed | `domain.rs:179:9: replace RuleId::scope -> &str with ""` | U5 `a_rule_cannot_call_a_pattern_declared_in_another_scope` |
+| M-domain-05 | Missed | `domain.rs:179:9: replace RuleId::scope -> &str with "xyzzy"` | U5 `a_rule_cannot_call_a_pattern_declared_in_another_scope` |
+| M-domain-06 | Missed | `domain.rs:212:9: replace <impl fmt::Display for RelPathRefusal>::fmt -> fmt::Result with Ok(Default::default())` | U7 `relpath_refusals.rs: an_absolute_path_refuses_with_the_reason` |
+| M-domain-07 | Missed | `domain.rs:292:9: replace <impl fmt::Display for ReasonCode>::fmt -> fmt::Result with Ok(Default::default())` | U6 `a_violation_carries_the_rule_path_line_and_description (extend)` |
+| M-domain-08 | Missed | `domain.rs:443:9: replace <impl fmt::Display for SourcePath>::fmt -> fmt::Result with Ok(Default::default())` | Deleted in U8 (`a4589f4f1`): `Display for SourcePath` (Q4) |
+| M-domain-09 | Missed | `domain.rs:529:9: replace ParsedRule::title -> &str with ""` | Deleted in U8 (`a4589f4f1`): `ParsedRule::title` and the `title` field (Q4) |
+| M-domain-10 | Missed | `domain.rs:529:9: replace ParsedRule::title -> &str with "xyzzy"` | Deleted in U8 (`a4589f4f1`): `ParsedRule::title` and the `title` field (Q4) |
+| M-domain-11 | Missed | `domain.rs:559:9: replace ParsedRule::params -> &BTreeMap<ParamName, String> with Box::leak(Box::new(BTreeMap::new()))` | Deleted in U8 (`a4589f4f1`):  the `ParsedRule::params` accessor (Q4) |
+| M-domain-12 | Missed | `domain.rs:568:49: replace && with \|\| in ParsedRule::library_against` | U5 `a_rule_cannot_call_a_pattern_declared_in_another_scope` |
+| M-domain-13 | Missed | `domain.rs:755:9: replace IgnoreGlobs::is_empty -> bool with false` | Deleted in U8 (`a4589f4f1`): `IgnoreGlobs::is_empty` (Q4) |
+| M-domain-14 | Missed | `domain.rs:755:9: replace IgnoreGlobs::is_empty -> bool with true` | Deleted in U8 (`a4589f4f1`): `IgnoreGlobs::is_empty` (Q4) |
+| M-domain-15 | Missed | `domain.rs:781:9: replace ScanPlan::files_selected -> usize with 0` | U6 `the_plan_counts_its_selected_files_and_rules` |
+| M-domain-16 | Missed | `domain.rs:781:9: replace ScanPlan::files_selected -> usize with 1` | U6 `the_plan_counts_its_selected_files_and_rules` |
+| M-domain-17 | Missed | `domain.rs:786:9: replace ScanPlan::rule_count -> usize with 0` | U6 `the_plan_counts_its_selected_files_and_rules` |
+| M-domain-18 | Missed | `domain.rs:786:9: replace ScanPlan::rule_count -> usize with 1` | U6 `the_plan_counts_its_selected_files_and_rules` |
+| M-domain-19 | Missed | `domain.rs:804:9: replace Execution::language -> TargetLanguage with Default::default()` | U6 `an_execution_names_its_language_and_reads_only_its_own_language` |
+| M-domain-20 | Missed | `domain.rs:808:9: replace Execution::files -> impl Iterator<Item =&InputFile> with ::std::iter::empty()` | U6 `an_execution_names_its_language_and_reads_only_its_own_language` |
+| M-domain-21 | Missed | `domain.rs:812:9: replace Execution::read -> impl Iterator<Item =&InputFile> with ::std::iter::empty()` | U6 `an_execution_names_its_language_and_reads_only_its_own_language` |
+| M-domain-22 | Missed | `domain.rs:958:9: replace CaseKind::directory -> &'static str with ""` | U4 `a_rule_with_only_good_cases_fails_as_untested (extend)` |
+| M-domain-23 | Missed | `domain.rs:958:9: replace CaseKind::directory -> &'static str with "xyzzy"` | U4 `a_rule_with_only_good_cases_fails_as_untested (extend)` |
+| M-domain-24 | Missed | `domain.rs:1104:9: replace EmbeddedFile::path -> &str with ""` | U2 `every_bundled_pack_decodes_into_its_committed_rule_files` |
+| M-domain-25 | Missed | `domain.rs:1104:9: replace EmbeddedFile::path -> &str with "xyzzy"` | U2 `every_bundled_pack_decodes_into_its_committed_rule_files` |
+| M-domain-26 | Missed | `domain.rs:1109:9: replace EmbeddedFile::contents -> &str with ""` | U2 `every_bundled_pack_decodes_into_its_committed_rule_files` |
+| M-domain-27 | Missed | `domain.rs:1109:9: replace EmbeddedFile::contents -> &str with "xyzzy"` | U2 `every_bundled_pack_decodes_into_its_committed_rule_files` |
 | M-encode-01 | Missed | `encode.rs:79:5: replace report_schema -> Schema with Default::default()` | U3 `the_report_schema_is_the_committed_envelope_schema` |
 | M-encode-02 | Missed | `encode.rs:203:5: replace concise_line -> String with "xyzzy".into()` | U3 `a_concise_line_normalises_whitespace_and_renders_whole_under_its_byte_budget` |
 | M-encode-03 | Missed | `encode.rs:203:5: replace concise_line -> String with String::new()` | U3 `a_concise_line_normalises_whitespace_and_renders_whole_under_its_byte_budget` |
@@ -124,7 +124,7 @@ These mutants survived for four reasons:
 | M-encode-23 | Missed | `encode.rs:341:5: replace render_fixtures -> String with String::new()` | U4 `a_pack_with_a_bad_and_a_good_case_passes (extend)`; U4 `a_bad_case_that_yields_no_finding_names_the_rule_and_the_case (extend)` |
 | M-engine-01 | Missed | `engine.rs:218:5: replace parse -> bool with false` | U7 `engine_contract.rs: a_file_with_syntax_errors_still_parses` |
 | M-engine-02 | Missed | `engine.rs:218:5: replace parse -> bool with true` | U9 anchored `exclude_re` (Q3: equivalent) |
-| M-error-01 | Missed | `error.rs:121:9: replace <impl std::fmt::Display for FrontmatterProblem>::fmt -> std::fmt::Result with Ok(Default::default())` | U5 `a_rule_without_valid_frontmatter_refuses_naming_the_file_and_the_key (extend)` |
+| M-error-01 | Missed | `error.rs:125:9: replace <impl std::fmt::Display for FrontmatterProblem>::fmt -> std::fmt::Result with Ok(Default::default())` | U5 `a_rule_without_valid_frontmatter_refuses_naming_the_file_and_the_key (extend)` |
 | M-shell-01 | Missed | `shell.rs:79:5: replace is_file -> bool with false` | U1 `is_file_is_true_only_for_an_existing_regular_file` |
 | M-shell-02 | Missed | `shell.rs:79:5: replace is_file -> bool with true` | U1 `is_file_is_true_only_for_an_existing_regular_file` |
 | M-shell-03 | Missed | `shell.rs:92:56: replace != with == in collect_rules` | U5 `a_consumer_directory_loads_nested_rules_but_never_a_fixtures_subtree` |
