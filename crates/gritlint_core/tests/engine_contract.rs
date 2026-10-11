@@ -326,6 +326,24 @@ fn malformed_json_yields_a_parse_diagnostic_that_names_the_file() {
 }
 
 #[test]
+fn a_file_with_syntax_errors_still_parses() {
+    let valid = InputFile {
+        path: "package.json".to_owned(),
+        contents: "{\"a\": 1}\n".to_owned(),
+    };
+    let malformed = InputFile {
+        path: "broken/package.json".to_owned(),
+        contents: BROKEN_PACKAGE_JSON.to_owned(),
+    };
+
+    assert!(engine::parse(json(), &valid), "{valid:?}");
+    assert!(
+        engine::parse(json(), &malformed),
+        "a file with error nodes still parses; gritlint reports the diagnostic separately: {malformed:?}"
+    );
+}
+
+#[test]
 fn a_target_over_the_size_limit_is_skipped_with_a_too_large_diagnostic() {
     let padding = " ".repeat(1_000_000);
     let big = format!("{{\"name\": \"big\",{padding}\"private\": true}}\n");
