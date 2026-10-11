@@ -16,7 +16,7 @@ on:
         required: false
 
 concurrency:
-  group: mutants-${{ github.ref }}
+  group: mutants-${{ github.event_name == 'push' && github.sha || github.ref }}
   cancel-in-progress: false
 
 permissions:
