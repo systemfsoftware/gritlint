@@ -15,7 +15,7 @@ ce-doc-review ran (4 reviewers); amendments are sub-conductor rulings (plan gate
 
 ## Goal Capsule
 
-- **Objective:** every one of the 72 mutants that full run 38092194120 (`mode=full`, at `1b0437c7a`) reported as Missed is resolved one of three ways. 63 are caught by a `gritlint_core` test that drives real input through a public entry point and asserts an outcome a consumer can see. 8 are deleted with the code nothing reads (Q4 names nine rows; the ninth, M-domain-03, gains a consumer and a test). One, M-engine-02, is excluded as equivalent by an anchored `exclude_re` (Q3). Q4's decision rule can move a deleted row into the tested group. The 5 Timeouts stay Timeouts, which count as detected (Q5).
+- **Objective:** every one of the 72 mutants that full run 38092194120 (`mode=full`, at `1b0437c7a`) reported as Missed is resolved one of three ways. 63 are caught by a `gritlint_core` test that drives real input through a public entry point and asserts an outcome a consumer can see. 7 are deleted with the code nothing reads (Q4 names nine rows: M-domain-03 gains a consumer and a test, and M-domain-01 stays because `NonEmpty::len` has a reader). Two are excluded by anchored `exclude_re` lines: M-engine-02 as equivalent (Q3), and M-domain-01, whose `is_empty` clippy requires beside a read `len` (Q4). Q4's decision rule can move a deleted row into the tested group. The 5 Timeouts stay Timeouts, which count as detected (Q5).
 - **Means:** U0 re-pins the compound packs and enrols `mutation-discipline` (A1). U1-U7 are test files under `crates/gritlint_core/tests/`. U8 is one production commit (`refactor(core): ...`) with a patch changeset: it deletes the unread accessors and carries the refusal reason into `InvalidParamName`. U9 adds the `exclude_re` to `.cargo/mutants.toml`. Units are file-disjoint. No new dependency. Line numbers hold at `5c9c2ab21`: `git diff --stat 1b0437c7a 5c9c2ab21 -- crates apps Cargo.toml Cargo.lock .cargo` is empty. U8 shifts `domain.rs` lines, so the table's line:col is regenerated from `cargo mutants --list` after it.
 - **Proof:** the post-merge per-push Mutants run on `main`, with no manual dispatch. It is a full run because this PR changes `.cargo/mutants.toml`, a full-run trigger against the last green `main` SHA (`scripts/tools/mutants-plan.sh:6,66-72`). It must report Caught for every Missed row the table assigns a test, list neither M-engine-02 nor the deleted accessors' mutants, and hold exactly the five Timeout rows in its timeout list.
 
@@ -23,7 +23,7 @@ ce-doc-review ran (4 reviewers); amendments are sub-conductor rulings (plan gate
 
 ### Summary
 
-Run 38092194120 tested all 475 mutants: 262 caught, 72 missed, 5 timeout and 136 unviable. Its survivor list was read from the run's `mutants.out-*` artifacts (`missed.txt`, `timeout.txt`, and the per-mutant `diff/` and `log/` files). Every survivor was then analysed against the code at `5c9c2ab21`, and its kill was argued from the mutant's diff alone, with no local mutation. The 72 Missed mutants resolve as follows. 63 get a test. Q4 names nine rows on code nothing reads: 8 are deleted, and M-domain-03 gains a consumer (U8) and a test (U1). 1 (M-engine-02) is equivalent on every reachable input and is excluded (Q3). The 5 Timeouts stay Timeouts (Q5).
+Run 38092194120 tested all 475 mutants: 262 caught, 72 missed, 5 timeout and 136 unviable. Its survivor list was read from the run's `mutants.out-*` artifacts (`missed.txt`, `timeout.txt`, and the per-mutant `diff/` and `log/` files). Every survivor was then analysed against the code at `5c9c2ab21`, and its kill was argued from the mutant's diff alone, with no local mutation. The 72 Missed mutants resolve as follows. 63 get a test. Q4 names nine rows on code nothing reads: 7 are deleted, M-domain-03 gains a consumer (U8) and a test (U1), and M-domain-01 is excluded because `NonEmpty::len` has a reader (U8 decision rule). 1 (M-engine-02) is equivalent on every reachable input and is excluded (Q3). The 5 Timeouts stay Timeouts (Q5).
 
 ### Problem Frame
 
@@ -42,7 +42,7 @@ These mutants survived for four reasons:
 - R4. Every PR job stays at or under 10 minutes, measured from the jobs API on the PR head (`Nix · x86_64-linux`, `Nix · aarch64-linux`). Every added test is an in-process run over a tiny tree or a string. The one larger input is the `packs/` tree, which `bundled_packs.rs` already reads.
 - R5. A Timeout is never hidden. All five stay Timeouts, counted as detected, and none is excluded (Q5).
 - R6. Code nothing reads at runtime is deleted, not tested (Q4; `mutation-discipline/unkillable-survivors-are-dead-code.md`, declared from U0). Decision rule: if a deletion fails to compile, the error names the reader; that reader is the consumer, and that row gets a test through it instead. At `5c9c2ab21` no test reads `ParsedRule::title()` or `ParsedRule::params()`. A refusal reason nobody prints gets a consumer: `GritlintError::InvalidParamName` carries it, and a patch changeset records the message change.
-- R7. The equivalent mutant M-engine-02 is excluded by exactly one anchored `exclude_re` line with a comment stating why and when to remove it (Q3). `cargo mutants --list` before and after U9 differs by exactly that one name.
+- R7. The equivalent mutant M-engine-02 is excluded by exactly one anchored `exclude_re` line with a comment stating why and when to remove it (Q3). M-domain-01 gets its own anchored line (Q4, U8 decision rule). `cargo mutants --list` before and after U9 differs by exactly those two names.
 - R8. The proof is the post-merge per-push run on `main` (Q1).
 
 ### Mutant table
@@ -72,7 +72,7 @@ These mutants survived for four reasons:
 | M-decode-16 | Missed | `decode.rs:735:28: replace + with * in parse_markdown` | U5 `a_markdown_rule_with_two_grit_blocks_is_refused`; U5 `a_rule_whose_example_block_precedes_the_grit_block_keeps_its_body` |
 | T-decode-17 | Timeout | `decode.rs:735:28: replace + with - in parse_markdown` | stays a Timeout, counted as detected (Q5); U5 `a_rule_whose_example_block_precedes_the_grit_block_keeps_its_body` fails fast under it, after `bundled_packs` has hung |
 | T-decode-18 | Timeout | `decode.rs:743:16: replace += with *= in parse_markdown` | stays a Timeout, counted as detected (Q5) |
-| M-domain-01 | Missed | `domain.rs:49:9: replace NonEmpty<T>::is_empty -> bool with true` | U8 delete `NonEmpty::len` + `is_empty` if `len` has no reader; else U9 anchored `exclude_re` (`clippy::len_without_is_empty`) (Q4) |
+| M-domain-01 | Missed | `domain.rs:49:9: replace NonEmpty<T>::is_empty -> bool with true` | U9 anchored `exclude_re` (`clippy::len_without_is_empty`): moved by the U8 decision rule, since `len` has a reader, `SelectedFiles::total` (`domain.rs:696`, rustc E0599) (Q4) |
 | M-domain-02 | Missed | `domain.rs:97:9: replace <impl fmt::Display for ParamName>::fmt -> fmt::Result with Ok(Default::default())` | U8 delete `Display for ParamName` (Q4) |
 | M-domain-03 | Missed | `domain.rs:109:9: replace <impl fmt::Display for ParamNameRefusal>::fmt -> fmt::Result with Ok(Default::default())` | U8 carries the refusal reason into `InvalidParamName`; U1 `a_pack_parameter_that_is_not_an_identifier_refuses_naming_the_key_the_config_and_the_reason` (Q4) |
 | M-domain-04 | Missed | `domain.rs:185:9: replace RuleId::scope -> &str with ""` | U5 `a_rule_cannot_call_a_pattern_declared_in_another_scope` |
@@ -278,7 +278,7 @@ One commit, `refactor(core): ...`, landing before U1's refusal test.
 - Delete the `ParsedRule::params` accessor. `engine_parameters()` and `with_params()` read the field directly. Kills M-domain-11 by deletion.
 - Delete `impl Display for ParamName` and `impl Display for SourcePath`. Kills M-domain-02/08 by deletion.
 - Delete `IgnoreGlobs::is_empty`. Kills M-domain-13/14 by deletion.
-- Delete `NonEmpty::len` and `NonEmpty::is_empty` together if `len` has no reader. If it has one, keep both, and U9 adds M-domain-01's own anchored `exclude_re` citing `clippy::len_without_is_empty`.
+- `NonEmpty::len` has a reader: deleting it fails with rustc E0599 at `domain.rs:696`, `SelectedFiles::total` (`self.by_language.values().map(NonEmpty::len).sum()`), which feeds `ScanPlan::files_selected`. Both `len` and `is_empty` stay, and U9 adds M-domain-01's own anchored `exclude_re` citing `clippy::len_without_is_empty`. Moved row: M-domain-01, from "U8 delete" to "U9 `exclude_re`".
 - `GritlintError::InvalidParamName` gains the refusal (`reason: ParamNameRefusal`), and its message names the key, the config and the reason. The three `map_err(|_| ..)` sites (`decode.rs:114`, `:489`, `:591`) pass the refusal through. `ParamNameRefusal`'s Display now has a consumer, and U1's refusal test kills M-domain-03.
 - `.changeset/<name>.md`: `"@systemfsoftware/gritlint": patch`, describing the clearer refusal message.
 - Decision rule (R6): a deletion that fails to compile names its reader. That row then keeps its code and gets a test through the reader, and the table and this unit are updated in the same commit.
@@ -287,7 +287,7 @@ One commit, `refactor(core): ...`, landing before U1's refusal test.
 ### U9. Exclude the equivalent mutant (`.cargo/mutants.toml`)
 
 - Add one anchored `exclude_re`, for example `'engine\.rs:[0-9]+:[0-9]+: replace parse -> bool with true$'`, with a comment above it: equivalent on every reachable input (gritql `4ca2834` `crates/language/src/language.rs:253-268` and `:510-544`; an execution only pairs a file with its own extension's language, `decide.rs` `Task::reads`); remove the line when a rule's language can differ from a scanned file's extension.
-- Only if U8 keeps `NonEmpty::len`: a second anchored line for M-domain-01 (`replace NonEmpty<T>::is_empty -> bool with true$`), with its comment citing `clippy::len_without_is_empty`.
+- U8 keeps `NonEmpty::len`, so a second anchored line excludes M-domain-01 (`replace NonEmpty<T>::is_empty -> bool with true$`), with its comment citing `clippy::len_without_is_empty`.
 - Check with `cargo mutants --list` only: before and after, the listings differ by exactly the excluded name(s).
 
 ## Verification Contract

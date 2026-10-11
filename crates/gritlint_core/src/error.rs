@@ -1,4 +1,4 @@
-use crate::domain::RelPathRefusal;
+use crate::domain::{ParamNameRefusal, RelPathRefusal};
 use std::path::PathBuf;
 
 #[derive(Debug, thiserror::Error)]
@@ -33,8 +33,12 @@ pub enum GritlintError {
         param: String,
         config: PathBuf,
     },
-    #[error("pack parameter `{name}` in `{config}` is not a GritQL identifier")]
-    InvalidParamName { name: String, config: PathBuf },
+    #[error("pack parameter `{name}` in `{config}` is not usable: {reason}")]
+    InvalidParamName {
+        name: String,
+        config: PathBuf,
+        reason: ParamNameRefusal,
+    },
     #[error("rule path `{path}` does not exist")]
     RulePathMissing { path: PathBuf },
     #[error("rule `{path}` carries no single ```grit block")]
