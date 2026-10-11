@@ -11,6 +11,8 @@
   pkgs,
   # system -> nixpkgs cross-compiling from this system to it, with rust-overlay
   pkgsFor,
+  # system -> nixpkgs native to it; its glibc is substituted, never built here
+  nativePkgsFor,
   crane,
   toolchainFile,
   # `packages.<system>.gritlint-unwrapped`, for its release arguments and vendor tree
@@ -52,8 +54,15 @@ let
         CARGO_BUILD_TARGET = rustTarget;
         "CARGO_TARGET_${platform.rust.cargoEnvVarTarget}_RUSTFLAGS" = lib.concatStringsSep " " [
           "-C target-feature=+crt-static"
-          # Only the target link sees the static libc.
-          "-C link-arg=-L${targetPkgs.glibc.static}/lib"
+          # libc.a compiles its own store path into the binary, and a cross
+          # glibc is another derivation from the target's native one. Both
+          # systems link the target's native static glibc.
+          "-C link-arg=-L${(nativePkgsFor target.system).glibc.static}/lib"
+          # rustc picks rust-lld or GNU ld by the host it runs on, and the two
+          # lay a binary out differently. GNU ld on every host: rust 1.99 accepts
+          # its linker-selecting flags only for x86_64-unknown-linux-gnu, so the
+          # choice goes to the C compiler driver, which takes the last `-fuse-ld`.
+          "-C link-arg=-fuse-ld=bfd"
           "--remap-path-prefix=${vendor}=${remap}"
         ];
         "CFLAGS_${lib.replaceStrings [ "-" ] [ "_" ] rustTarget}" = cFlags;

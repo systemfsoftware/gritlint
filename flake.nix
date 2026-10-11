@@ -62,6 +62,7 @@
               crossSystem = system;
               overlays = [ (import rust-overlay) ];
             };
+            nativePkgsFor = system: nixpkgs.legacyPackages.${system};
             toolchainFile = ./rust-toolchain.toml;
             release = gritlint-unwrapped;
           };
