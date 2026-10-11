@@ -105,7 +105,8 @@ let
       log=$GRITLINT_RUSTC_METADATA_LOG
       own() { awk -v build="$pname" -v kind="$1" '$1 == build && $2 == kind' "$log"; }
       echo "rustc wrapper, a normalized target unit: $(own normalized | awk 'NR == 1')"
-      echo "rustc wrapper, a passthrough host unit: $(own passthrough | awk 'NR == 1 { print; found = 1 } END { if (!found) print "none rebuilt in this build" }')"
+      host=$(own passthrough | awk 'NR == 1')
+      echo "rustc wrapper, a passthrough host unit: ''${host:-none rebuilt in this build}"
       shared=$(own normalized | awk '{ print $5, $4 }' | sort -u | awk '{ n[$1]++ } END { for (m in n) if (n[m] > 1) print m }')
       if [ -n "$shared" ]; then
         echo "rustc wrapper: two target units share a normalized metadata:" >&2
@@ -129,6 +130,7 @@ let
       # locations and C `assert` strings; both systems must emit the same bytes.
       remap = "/gritlint-vendor";
       cFlags = "-ffile-prefix-map=${vendor}=${remap}";
+      cEnvTarget = lib.replaceStrings [ "-" ] [ "_" ] rustTarget;
       args = release.releaseArgs // metadataLog // {
         pname = "gritlint-${target.suffix}";
         # Always explicit, even for the native target: cargo then keeps the
@@ -148,8 +150,8 @@ let
           "-C link-arg=-fuse-ld=bfd"
           "--remap-path-prefix=${vendor}=${remap}"
         ];
-        "CFLAGS_${lib.replaceStrings [ "-" ] [ "_" ] rustTarget}" = cFlags;
-        "CXXFLAGS_${lib.replaceStrings [ "-" ] [ "_" ] rustTarget}" = cFlags;
+        "CFLAGS_${cEnvTarget}" = cFlags;
+        "CXXFLAGS_${cEnvTarget}" = cFlags;
       };
     in
     craneLib.buildPackage (

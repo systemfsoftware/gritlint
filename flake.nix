@@ -143,7 +143,10 @@
               tarball = exported.gritlint-tarball;
             };
             # ci.yml's `changeset-intent` decision, over a scratch git history.
-            gritlint-intent-gate = pkgs.callPackage ./nix/gritlint-intent-gate.nix { };
+            gritlint-intent-gate = pkgs.runCommand "gritlint-intent-gate" { nativeBuildInputs = [ pkgs.git ]; } ''
+              bash ${./scripts/tools}/intent-gate.test.sh
+              touch $out
+            '';
           }
           // import ./nix/gritlint-checks.nix {
             inherit (pkgs) lib runCommand;
