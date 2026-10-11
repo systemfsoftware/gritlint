@@ -59,4 +59,4 @@ The check observes behaviour: what the probe can see and do inside the wrapper. 
 
 ## Related Issues
 
-- `docs/plans/2026-10-11-1301-feat-gritlint-standalone-plan.md` R7, KTD2, AE4
+- `docs/plans/2026-10-11-2312-feat-gritlint-standalone-plan.md` R7, KTD2, AE4
