@@ -162,7 +162,7 @@ jobs:
                 diff -r "$a" "$b" || true
                 ;;
               gritlint-*)
-                cmp -l "$ref/$file" "$other/$file" | wc -l
+                echo "$({ cmp -l "$ref/$file" "$other/$file" || true; } | wc -l) bytes differ"
                 diff <(strings -n 8 "$ref/$file" | grep /nix/store/ | sort -u) <(strings -n 8 "$other/$file" | grep /nix/store/ | sort -u) || true
                 ;;
             esac
