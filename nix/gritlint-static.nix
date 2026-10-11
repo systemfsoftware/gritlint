@@ -64,9 +64,13 @@ let
           # choice goes to the C compiler driver, which takes the last `-fuse-ld`.
           "-C link-arg=-fuse-ld=bfd"
           "--remap-path-prefix=${vendor}=${remap}"
+          # R29 round-3 diagnostic, reverted by the fix: GNU ld's link map.
+          "-C link-arg=-Wl,-Map=gritlint.link-map"
         ];
         "CFLAGS_${lib.replaceStrings [ "-" ] [ "_" ] rustTarget}" = cFlags;
         "CXXFLAGS_${lib.replaceStrings [ "-" ] [ "_" ] rustTarget}" = cFlags;
+        # R29 round-3 diagnostic: the cc crate logs every compiler command.
+        CC_ENABLE_DEBUG_OUTPUT = "1";
       };
     in
     craneLib.buildPackage (
@@ -81,6 +85,26 @@ let
         );
         cargoExtraArgs = "--locked -p gritlint";
         doCheck = false;
+        # R29 round-3 diagnostic: the link map, the cc crate's commands, and the
+        # target C compiler's macros and driver line under the flags it used.
+        postInstall = ''
+          find . -name gritlint.link-map -exec cp {} $out/link-map \;
+          test -s $out/link-map
+          find target -path '*/build/*/output' | sort | xargs grep -h '^running: ' | sort > $out/cc-commands
+          line=$(grep -h -m1 -- '"-c"' $(find target -path '*/build/*/output' | grep -E '/build/tree-sitter-[0-9a-f]{16}/output$'))
+          eval "set -- ''${line#running: }"
+          cc=$1
+          shift
+          flags=
+          while [ $# -gt 0 ]; do
+            case $1 in
+              -o | -c) shift 2 ;;
+              *) flags="$flags $1"; shift ;;
+            esac
+          done
+          $cc $flags -dM -E -x c /dev/null | sort > $out/cc-macros
+          $cc $flags -v -c -x c /dev/null -o "$TMPDIR/probe.o" 2>&1 | grep -E '/cc1 |^COLLECT_GCC_OPTIONS' > $out/cc-driver
+        '';
       }
     );
 
@@ -94,5 +118,8 @@ pkgs.runCommand "gritlint-binaries-${release.version}"
     mkdir $out
     ${lib.concatMapStrings (target: ''
       cp ${target.package}/bin/gritlint $out/gritlint-${target.suffix}
+      for diagnostic in link-map cc-commands cc-macros cc-driver; do
+        cp ${target.package}/$diagnostic $out/gritlint-${target.suffix}.$diagnostic
+      done
     '') built}
   ''
