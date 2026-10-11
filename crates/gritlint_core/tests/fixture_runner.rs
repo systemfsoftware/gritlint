@@ -11,6 +11,7 @@ use gritlint_core::GritlintError;
 use gritlint_core::decide;
 use gritlint_core::decode;
 use gritlint_core::domain::{CaseKind, FixtureOutcome};
+use gritlint_core::encode;
 use gritlint_core::shell;
 use std::fs;
 use std::path::Path;
@@ -85,6 +86,14 @@ fn a_pack_with_a_bad_and_a_good_case_passes() {
 
     assert!(outcome.passed(), "{outcome:#?}");
     assert_eq!(outcome.results().len(), 2);
+    assert_eq!(
+        encode::render_fixtures(&outcome),
+        concat!(
+            "ok bad pack-one/no-console fixtures/no-console/bad/basic\n",
+            "ok good pack-one/no-console fixtures/no-console/good/basic\n",
+            "2 case(s) passed\n"
+        )
+    );
 }
 
 #[test]
@@ -114,6 +123,15 @@ fn a_bad_case_that_yields_no_finding_names_the_rule_and_the_case() {
         failures[0].detail().contains("no finding"),
         "{}",
         failures[0].detail()
+    );
+    assert_eq!(
+        encode::render_fixtures(&outcome),
+        concat!(
+            "FAIL bad pack-one/no-console fixtures/no-console/bad/basic: ",
+            "the known-bad case produced no finding\n",
+            "ok good pack-one/no-console fixtures/no-console/good/basic\n",
+            "1 case(s) failed\n"
+        )
     );
 }
 
@@ -198,6 +216,13 @@ fn a_rule_with_only_good_cases_fails_as_untested() {
         "{}",
         failures[0].detail()
     );
+    assert_eq!(failures[0].case().as_str(), "fixtures/no-console/bad");
+    let rendered = encode::render_fixtures(&outcome);
+    assert!(
+        rendered
+            .contains("FAIL bad pack-one/no-console fixtures/no-console/bad: no known-bad case"),
+        "{rendered}"
+    );
 }
 
 #[test]
@@ -220,6 +245,66 @@ fn a_consumer_rules_directory_follows_the_same_contract() {
         "{}",
         failures[0].detail()
     );
+}
+
+#[test]
+fn a_consumer_layout_ignores_a_non_rule_file_at_the_root() {
+    let temp = tempfile::tempdir().expect("temp dir");
+    write(temp.path(), "no-console.grit", NO_CONSOLE);
+    write(temp.path(), "notes.txt", "these are not GritQL\n");
+    write(
+        temp.path(),
+        "fixtures/no-console/good/basic/package.json",
+        "{\"name\": \"app\"}",
+    );
+
+    let outcome = run_fixtures(temp.path()).expect("run the fixtures");
+
+    assert!(!outcome.results().is_empty(), "{outcome:#?}");
+    for result in outcome.results() {
+        assert_eq!(
+            result.rule_id().as_string(),
+            "local/no-console",
+            "{outcome:#?}"
+        );
+    }
+}
+
+#[test]
+fn a_case_ignores_node_modules_and_dot_directories() {
+    let temp = tempfile::tempdir().expect("temp dir");
+    write_pack(temp.path(), "pack-one", &[], "no-console.grit", NO_CONSOLE);
+    write(
+        temp.path(),
+        "pack-one/fixtures/no-console/bad/basic/package.json",
+        "{\"console\": \"debug\"}",
+    );
+    write(
+        temp.path(),
+        "pack-one/fixtures/no-console/bad/basic/expected-locations.txt",
+        BASIC_EXPECTED,
+    );
+    write(
+        temp.path(),
+        "pack-one/fixtures/no-console/good/basic/package.json",
+        "{\"name\": \"app\"}",
+    );
+    for case in ["bad", "good"] {
+        write(
+            temp.path(),
+            &format!("pack-one/fixtures/no-console/{case}/basic/node_modules/dep.json"),
+            "{\"console\": \"debug\"}",
+        );
+        write(
+            temp.path(),
+            &format!("pack-one/fixtures/no-console/{case}/basic/.cache/scratch.json"),
+            "{\"console\": \"debug\"}",
+        );
+    }
+
+    let outcome = run_fixtures(temp.path()).expect("run the fixtures");
+
+    assert!(outcome.passed(), "{outcome:#?}");
 }
 
 #[test]
