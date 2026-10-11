@@ -92,12 +92,6 @@ impl ParamName {
     }
 }
 
-impl fmt::Display for ParamName {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        formatter.write_str(&self.0)
-    }
-}
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ParamNameRefusal {
     Empty,
@@ -438,12 +432,6 @@ impl SourcePath {
     }
 }
 
-impl fmt::Display for SourcePath {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(formatter, "{}", self.0.display())
-    }
-}
-
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RuleSource {
     path: SourcePath,
@@ -471,7 +459,6 @@ impl RuleSource {
 pub struct ParsedRule {
     id: RuleId,
     name: RuleName,
-    title: String,
     message: String,
     body: String,
     path: SourcePath,
@@ -488,7 +475,6 @@ impl ParsedRule {
     pub(crate) fn assemble(
         id: RuleId,
         name: RuleName,
-        title: String,
         message: String,
         body: String,
         path: SourcePath,
@@ -501,7 +487,6 @@ impl ParsedRule {
         Self {
             id,
             name,
-            title,
             message,
             body,
             path,
@@ -522,11 +507,6 @@ impl ParsedRule {
     #[must_use]
     pub fn name(&self) -> &RuleName {
         &self.name
-    }
-
-    #[must_use]
-    pub fn title(&self) -> &str {
-        &self.title
     }
 
     #[must_use]
@@ -552,11 +532,6 @@ impl ParsedRule {
     #[must_use]
     pub fn targets(&self) -> &[Regex] {
         &self.targets
-    }
-
-    #[must_use]
-    pub fn params(&self) -> &BTreeMap<ParamName, String> {
-        &self.params
     }
 
     #[must_use]
@@ -748,11 +723,6 @@ impl IgnoreGlobs {
     #[must_use]
     pub fn matches(&self, relative: &str) -> bool {
         self.0.is_match(relative)
-    }
-
-    #[must_use]
-    pub fn is_empty(&self) -> bool {
-        self.0.is_empty()
     }
 }
 

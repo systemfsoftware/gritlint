@@ -247,6 +247,12 @@ fn a_violation_carries_the_rule_path_line_and_description() {
         })
     );
     assert_eq!(finding.message(), "Remove the debug console call.");
+
+    let human = encode::render_human(&outcome);
+    assert!(
+        human.contains("  test-reason: Fix it."),
+        "an agent reads the reason code and the next action from the rendered line: {human}"
+    );
 }
 
 #[test]
@@ -612,4 +618,132 @@ fn a_single_file_match_without_a_range_is_reported_at_its_file_alone() {
 
     assert_eq!(locations(&outcome), ["local/whole-file package.json"]);
     assert_eq!(decide::exit_code(outcome.verdict()), 1);
+}
+
+#[test]
+fn a_walk_returns_only_files_with_a_language_extension() {
+    let temp = tempfile::tempdir().expect("temp dir");
+    write(temp.path(), "package.json", "{\"react\": \"18\"}\n");
+    write(
+        temp.path(),
+        "notes.txt",
+        "a file whose extension is no language\n",
+    );
+    write(temp.path(), "LICENSE", "a file with no extension at all\n");
+
+    let walked = shell::walk(
+        temp.path(),
+        &decode::ignore_globs(&[]).expect("no ignore globs"),
+    );
+
+    assert_eq!(
+        walked,
+        [temp.path().join("package.json")],
+        "only the file whose extension names a language is walked"
+    );
+}
+
+#[test]
+fn the_plan_counts_its_selected_files_and_rules() {
+    let temp = tempfile::tempdir().expect("temp dir");
+    write(temp.path(), "a/package.json", "{\"react\": \"18\"}\n");
+    write(temp.path(), "b/package.json", "{\"react\": \"19\"}\n");
+
+    let plan = plan(
+        temp.path(),
+        &[rule("react", REACT_PAIR), rule("api", API_EXTRACTOR)],
+        &[],
+    )
+    .expect("plan");
+
+    assert_eq!(
+        plan.files_selected(),
+        2,
+        "the bench reports this figure as the files selected"
+    );
+    assert_eq!(
+        plan.rule_count(),
+        2,
+        "the bench reports this figure as the rule count"
+    );
+}
+
+#[test]
+fn an_execution_names_its_language_and_reads_only_its_own_language() {
+    let temp = tempfile::tempdir().expect("temp dir");
+    write(temp.path(), "pkg/package.json", "{\"react\": \"18\"}\n");
+    write(temp.path(), "pkg/tsdown.config.ts", "export default {}\n");
+
+    let plan = plan(temp.path(), &[rule("join", TSDOWN_PRESENCE_JOIN)], &[]).expect("plan");
+    let sources =
+        shell::read_sources(temp.path(), &decide::sources_needed(&plan)).expect("sources");
+
+    let executions = decide::executions(&plan, &sources).expect("executions");
+
+    assert_eq!(executions.len(), 1, "{executions:#?}");
+    let execution = &executions[0];
+    assert_eq!(
+        execution.language().to_string(),
+        "json",
+        "gritql's TargetLanguage Display names the rule's language"
+    );
+    let mut files: Vec<&str> = execution.files().map(|file| file.path.as_str()).collect();
+    files.sort_unstable();
+    assert_eq!(files, ["pkg/package.json", "pkg/tsdown.config.ts"]);
+    assert_eq!(
+        execution
+            .read()
+            .map(|file| file.path.as_str())
+            .collect::<Vec<_>>(),
+        ["pkg/package.json"],
+        "only the rule's own language is read"
+    );
+    let participant = execution
+        .files()
+        .find(|file| file.path == "pkg/tsdown.config.ts")
+        .expect("the name-matched participant is in the batch");
+    assert!(
+        participant.contents.is_empty(),
+        "a name-only participant is never read: {participant:?}"
+    );
+}
+
+#[test]
+fn a_multifile_locator_sees_only_the_files_the_rule_matched() {
+    let temp = tempfile::tempdir().expect("temp dir");
+    write(
+        temp.path(),
+        "pkg/package.json",
+        "{\n  \"react\": \"18\"\n}\n",
+    );
+    write(temp.path(), "pkg/tsdown.config.ts", "export default {}\n");
+    let rule = located_rule("join", TSDOWN_PRESENCE_JOIN, r#"`"react": $_`"#);
+
+    let outcome = scan(temp.path(), &[rule], &[])
+        .expect("a name-only participant must not be read by the locator");
+
+    assert_eq!(
+        locations(&outcome),
+        ["local/join pkg/package.json:2:3-2:16"],
+        "the locator runs only on the files the rule read"
+    );
+}
+
+/// Assumes gritql's multifile result order: with identical files `source_file` decides, so
+/// a fold keeping the last result would report `a/tsconfig.json`.
+#[test]
+fn a_multifile_locator_tie_goes_to_the_first_path_not_the_engine_order() {
+    let temp = tempfile::tempdir().expect("temp dir");
+    let contents = "{\n  \"probe\": 1,\n  \"vite\": \"1\",\n  \"compilerOptions\": {}\n}\n";
+    write(temp.path(), "a/package.json", contents);
+    write(temp.path(), "a/tsconfig.json", contents);
+    let rule = located_rule("join", SIBLING_JOIN, r#"`"probe": $_`"#);
+
+    let outcome = scan(temp.path(), &[rule], &[]).expect("scan");
+
+    assert_eq!(
+        locations(&outcome),
+        ["local/join a/package.json:2:3-2:13"],
+        "both files match at the same range, so the first path wins"
+    );
 }
