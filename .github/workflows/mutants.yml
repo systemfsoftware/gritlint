@@ -3,21 +3,141 @@ name: Mutants
 on:
   push:
     branches: [main]
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: "full: every mutant. in-diff: the mutants in the diff from base, or from the last green main run."
+        type: choice
+        options: [full, in-diff]
+        default: full
+      base:
+        description: "in-diff only: the commit to diff from. Empty means the last green main run."
+        type: string
+        required: false
 
 concurrency:
-  group: mutants-${{ github.ref }}
-  cancel-in-progress: true
+  group: mutants-${{ github.event_name == 'push' && github.sha || github.ref }}
+  cancel-in-progress: false
 
 permissions:
   contents: read
 
+env:
+  CARGO_MUTANTS: nix develop --command nix shell --inputs-from . nixpkgs#cargo-mutants --command cargo mutants
+  PLAN: bash scripts/tools/mutants-plan.sh
+
 jobs:
-  mutants:
-    name: cargo mutants · x86_64-linux
+  plan:
+    name: plan
     runs-on: ubuntu-latest
-    timeout-minutes: 340
+    timeout-minutes: 60
+    permissions:
+      contents: read
+      actions: read
+    defaults:
+      run:
+        shell: bash
     env:
-      CARGO_MUTANTS: nix develop --command nix shell --inputs-from . nixpkgs#cargo-mutants --command cargo mutants
+      GH_TOKEN: ${{ github.token }}
+    outputs:
+      n: ${{ steps.list.outputs.n }}
+      shards: ${{ steps.list.outputs.shards }}
+      artifact: ${{ steps.list.outputs.artifact }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - uses: cachix/install-nix-action@13d8dd58da0234aa297dedd986986ccb8e7f3e24
+      - name: Offline cargo home from the vendor tree
+        run: |
+          echo "CARGO_HOME=$RUNNER_TEMP/cargo-home" >> "$GITHUB_ENV"
+          mkdir -p "$RUNNER_TEMP/cargo-home"
+          cp "$(nix build --no-link --print-out-paths .#packages.x86_64-linux.gritlint-unwrapped.vendor)/config.toml" "$RUNNER_TEMP/cargo-home/"
+          $CARGO_MUTANTS --version
+      - name: jq from the locked nixpkgs
+        run: nix shell --inputs-from . nixpkgs#jq --command sh -c 'dirname "$(command -v jq)"' >> "$GITHUB_PATH"
+
+      - name: Mode
+        id: mode
+        env:
+          EVENT: ${{ github.event_name }}
+          INPUT_MODE: ${{ inputs.mode }}
+          INPUT_BASE: ${{ inputs.base }}
+        run: |
+          gh api "repos/$GITHUB_REPOSITORY/actions/workflows/mutants.yml/runs?branch=main&event=push&status=success&per_page=20" > "$RUNNER_TEMP/green.json" ||
+            { echo "::error::cannot list the successful Mutants runs on main"; exit 1; }
+          green=$($PLAN green-sha "$RUNNER_TEMP/green.json")
+          $PLAN mode "$EVENT" "$INPUT_MODE" "$INPUT_BASE" "$green" "$GITHUB_SHA" | tee -a "$GITHUB_OUTPUT"
+
+      - name: Resume from earlier runs at this commit
+        env:
+          BRANCH: ${{ github.ref_name }}
+        run: |
+          gh api "repos/$GITHUB_REPOSITORY/actions/workflows/mutants.yml/runs?head_sha=$GITHUB_SHA&branch=$BRANCH&per_page=100" > "$RUNNER_TEMP/at-sha.json" ||
+            { echo "::error::cannot list the Mutants runs at $GITHUB_SHA"; exit 1; }
+          mkdir -p "$RUNNER_TEMP/prior"
+          runs=$($PLAN prior-runs "$RUNNER_TEMP/at-sha.json" "$GITHUB_RUN_ID" "$GITHUB_RUN_ATTEMPT" "$BRANCH" "$GITHUB_SHA")
+          for run in $runs; do
+            gh api "repos/$GITHUB_REPOSITORY/actions/runs/$run/artifacts?per_page=100" > "$RUNNER_TEMP/artifacts-$run.json"
+            $PLAN artifacts "$RUNNER_TEMP/artifacts-$run.json" > "$RUNNER_TEMP/artifacts-$run.txt"
+            while read -r id name; do
+              dir="$RUNNER_TEMP/prior/$run-$name"
+              gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/$id/zip" > "$dir.zip"
+              unzip -q "$dir.zip" -d "$dir"
+              echo "- run $run, \`$name\`" >> "$RUNNER_TEMP/resumed.md"
+            done < "$RUNNER_TEMP/artifacts-$run.txt"
+          done
+          shopt -s nullglob
+          $PLAN merge plan "$RUNNER_TEMP"/prior/*/
+
+      - name: Mutants to test
+        id: list
+        env:
+          MODE: ${{ steps.mode.outputs.mode }}
+          BASE: ${{ steps.mode.outputs.base }}
+          REASON: ${{ steps.mode.outputs.reason }}
+        run: |
+          if [ "$MODE" = in-diff ]; then
+            git diff "$BASE" HEAD -- '*.rs' > plan/mutants.diff
+          fi
+          total=$($CARGO_MUTANTS --workspace --list | wc -l)
+          mkdir mutants.out
+          cp plan/*.txt mutants.out/
+          $CARGO_MUTANTS --workspace --list --iterate $([ -f plan/mutants.diff ] && echo --in-diff plan/mutants.diff) > plan/mutants.txt
+          count=$(wc -l < plan/mutants.txt)
+          shards=$($PLAN shards "$total" "$count")
+          {
+            echo "artifact=mutants-plan-$GITHUB_RUN_ATTEMPT"
+            echo "$shards"
+          } >> "$GITHUB_OUTPUT"
+          eval "$(grep -E '^(capacity|n)=' <<<"$shards")"
+          {
+            echo "**Mode:** $MODE${BASE:+ from \`$BASE\`} ($REASON)"
+            echo
+            echo "**Mutants:** $total listed, $count left to test after earlier runs at this commit, in $n shards of at most $capacity."
+            if [ -s "$RUNNER_TEMP/resumed.md" ]; then
+              echo
+              echo "**Resumed from:**"
+              cat "$RUNNER_TEMP/resumed.md"
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: ${{ steps.list.outputs.artifact }}
+          path: plan
+          if-no-files-found: error
+
+  shard:
+    name: cargo mutants · shard ${{ matrix.shard }}
+    needs: plan
+    if: needs.plan.outputs.n != '0'
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: ${{ fromJSON(needs.plan.outputs.shards) }}
     defaults:
       run:
         shell: bash
@@ -32,50 +152,58 @@ jobs:
           mkdir -p "$RUNNER_TEMP/cargo-home"
           cp "$(nix build --no-link --print-out-paths .#packages.x86_64-linux.gritlint-unwrapped.vendor)/config.toml" "$RUNNER_TEMP/cargo-home/"
           $CARGO_MUTANTS --version
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
+        with:
+          name: ${{ needs.plan.outputs.artifact }}
+          path: plan
 
-      - name: Mutants listed
-        run: |
-          count=$($CARGO_MUTANTS --workspace --list | wc -l)
-          echo "**$count mutants listed**" >> "$GITHUB_STEP_SUMMARY"
-          if [ "$count" -eq 0 ]; then
-            echo "::error file=.cargo/mutants.toml::examine_globs selects no mutant"
-            exit 1
-          fi
       - name: cargo mutants
-        timeout-minutes: 310
+        timeout-minutes: 60
+        env:
+          SHARD: ${{ matrix.shard }}
+          N: ${{ needs.plan.outputs.n }}
         run: |
+          mkdir mutants.out
+          cp plan/*.txt mutants.out/
           status=0
-          $CARGO_MUTANTS --workspace || status=$?
+          $CARGO_MUTANTS --workspace --iterate --shard "$SHARD/$N" --sharding round-robin $([ -f plan/mutants.diff ] && echo --in-diff plan/mutants.diff) || status=$?
           echo "cargo mutants exited $status"
-          # https://mutants.rs/exit-codes.html: 0 all caught, 2 missed, 3 timeouts; any other code is an error.
-          case "$status" in
-            0 | 2 | 3) ;;
-            *) exit "$status" ;;
-          esac
+          $PLAN exit-ok "$status" || exit "$status"
 
-      - name: Outcomes and missed mutants
+      - name: Outcomes
         if: always()
-        run: |
-          {
-            echo
-            echo "| Outcome | Mutants |"
-            echo "| --- | --- |"
-            for outcome in caught missed timeout unviable; do
-              echo "| $outcome | $(cat "mutants.out/$outcome.txt" 2>/dev/null | wc -l) |"
-            done
-            if [ -s mutants.out/missed.txt ]; then
-              echo
-              echo "### Missed"
-              echo
-              echo '```text'
-              cat mutants.out/missed.txt
-              echo '```'
-            fi
-          } >> "$GITHUB_STEP_SUMMARY"
+        run: $PLAN summary "" mutants.out >> "$GITHUB_STEP_SUMMARY"
       - name: Upload mutants.out
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
-          name: mutants.out
+          name: mutants.out-${{ github.run_attempt }}-${{ matrix.shard }}
           path: mutants.out
           if-no-files-found: ignore
+
+  summary:
+    name: summary
+    needs: [plan, shard]
+    if: always() && needs.plan.result == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
+        with:
+          name: ${{ needs.plan.outputs.artifact }}
+          path: plan
+      - if: needs.plan.outputs.n != '0'
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
+        with:
+          pattern: mutants.out-*
+          path: shards
+      - name: Outcomes over every shard
+        run: |
+          shopt -s nullglob
+          $PLAN summary plan shards/*/ >> "$GITHUB_STEP_SUMMARY"

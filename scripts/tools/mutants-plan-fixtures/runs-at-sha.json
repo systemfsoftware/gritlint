@@ -1,0 +1,7 @@
+{"total_count": 5, "workflow_runs": [
+  {"id": 20, "head_branch": "main", "head_sha": "6666666666666666666666666666666666666666", "event": "workflow_dispatch", "status": "in_progress", "conclusion": null, "created_at": "2026-10-09T10:00:00Z"},
+  {"id": 13, "head_branch": "main", "head_sha": "5555555555555555555555555555555555555555", "event": "push", "status": "completed", "conclusion": "success", "created_at": "2026-10-08T10:00:00Z"},
+  {"id": 12, "head_branch": "ci/side", "head_sha": "6666666666666666666666666666666666666666", "event": "workflow_dispatch", "status": "completed", "conclusion": "success", "created_at": "2026-10-07T10:00:00Z"},
+  {"id": 11, "head_branch": "main", "head_sha": "6666666666666666666666666666666666666666", "event": "push", "status": "queued", "conclusion": null, "created_at": "2026-10-06T10:00:00Z"},
+  {"id": 10, "head_branch": "main", "head_sha": "6666666666666666666666666666666666666666", "event": "push", "status": "completed", "conclusion": "cancelled", "created_at": "2026-10-05T10:00:00Z"}
+]}
