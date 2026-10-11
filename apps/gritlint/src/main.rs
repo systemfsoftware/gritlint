@@ -4,7 +4,7 @@ use gritlint_core::domain::{EmbeddedFile, Pack, Verdict};
 use gritlint_core::error::GritlintError;
 use gritlint_core::{decide, encode, shell};
 use include_dir::{Dir, include_dir};
-use std::io::Write;
+use std::io::{IsTerminal, Write};
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
@@ -78,6 +78,7 @@ struct TestArgs {
 fn main() -> ExitCode {
     tracing_subscriber::fmt()
         .with_writer(std::io::stderr)
+        .with_ansi(std::io::stderr().is_terminal())
         .with_target(false)
         .without_time()
         .with_max_level(tracing::Level::WARN)

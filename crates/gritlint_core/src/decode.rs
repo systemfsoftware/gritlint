@@ -111,9 +111,10 @@ pub fn enabled_packs(
                 .map(|(name, value)| {
                     ParamName::new(name)
                         .map(|name| (name, value.clone()))
-                        .map_err(|_| GritlintError::InvalidParamName {
+                        .map_err(|reason| GritlintError::InvalidParamName {
                             name: name.clone(),
                             config: config_path.to_owned(),
+                            reason,
                         })
                 })
                 .collect::<Result<BTreeMap<_, _>, _>>()?;
@@ -198,16 +199,16 @@ pub fn parse_rule(
     );
 
     let (guidance, locate, text) = read_and_blank_frontmatter(source.text(), path)?;
-    let (title, message, body) = if is_markdown(path) {
-        let (title, description, body) = parse_markdown(&text, path)?;
+    let (message, body) = if is_markdown(path) {
+        let (description, body) = parse_markdown(&text, path)?;
         let message = if description.is_empty() {
             stem.clone()
         } else {
             description
         };
-        (title, message, body)
+        (message, body)
     } else {
-        (stem.clone(), stem.clone(), text)
+        (stem.clone(), text)
     };
 
     let language = Language::of_body(&body).ok_or_else(|| GritlintError::RuleNoLanguage {
@@ -218,7 +219,6 @@ pub fn parse_rule(
     Ok(ParsedRule::assemble(
         id,
         name,
-        title,
         message,
         body,
         source.path().clone(),
@@ -486,9 +486,10 @@ fn parse_manifest(text: &str, path: &Path) -> Result<Vec<ParamName>, GritlintErr
         .required_params
         .iter()
         .map(|name| {
-            ParamName::new(name).map_err(|_| GritlintError::InvalidParamName {
+            ParamName::new(name).map_err(|reason| GritlintError::InvalidParamName {
                 name: name.clone(),
                 config: path.to_owned(),
+                reason,
             })
         })
         .collect()
@@ -588,9 +589,10 @@ fn fixture_case(
                 .map(|(name, value)| {
                     ParamName::new(name)
                         .map(|name| (name, value.clone()))
-                        .map_err(|_| GritlintError::InvalidParamName {
+                        .map_err(|reason| GritlintError::InvalidParamName {
                             name: name.clone(),
                             config: config_path.clone(),
+                            reason,
                         })
                 })
                 .collect::<Result<BTreeMap<_, _>, _>>()?;
@@ -710,11 +712,11 @@ fn is_markdown(path: &Path) -> bool {
         .is_some_and(|extension| extension.eq_ignore_ascii_case("md"))
 }
 
-fn parse_markdown(text: &str, path: &Path) -> Result<(String, String, String), GritlintError> {
+fn parse_markdown(text: &str, path: &Path) -> Result<(String, String), GritlintError> {
     let lines: Vec<&str> = text.lines().collect();
 
     let mut cursor = 0;
-    let mut title: Option<(usize, String)> = None;
+    let mut title_line: Option<usize> = None;
     let mut grit: Option<(usize, usize)> = None;
     while let Some(line) = lines.get(cursor) {
         let trimmed = line.trim();
@@ -735,10 +737,8 @@ fn parse_markdown(text: &str, path: &Path) -> Result<(String, String, String), G
             cursor = close + 1;
             continue;
         }
-        if title.is_none()
-            && let Some(heading) = trimmed.strip_prefix("# ")
-        {
-            title = Some((cursor, heading.trim().to_owned()));
+        if title_line.is_none() && trimmed.starts_with("# ") {
+            title_line = Some(cursor);
         }
         cursor += 1;
     }
@@ -753,8 +753,6 @@ fn parse_markdown(text: &str, path: &Path) -> Result<(String, String, String), G
         .copied()
         .collect::<Vec<_>>()
         .join("\n");
-    let (title_line, title_text) =
-        title.map_or((None, String::new()), |(line, text)| (Some(line), text));
     let description = lines
         .iter()
         .enumerate()
@@ -765,7 +763,7 @@ fn parse_markdown(text: &str, path: &Path) -> Result<(String, String, String), G
         .join("\n")
         .trim()
         .to_owned();
-    Ok((title_text, description, body))
+    Ok((description, body))
 }
 
 fn file_targets(body: &str) -> Vec<Regex> {

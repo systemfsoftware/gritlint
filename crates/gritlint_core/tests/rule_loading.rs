@@ -338,40 +338,52 @@ fn a_rule_without_valid_frontmatter_refuses_naming_the_file_and_the_key() {
             "---\nnextAction: Fix it.\n---\n",
             "reasonCode",
             FrontmatterProblem::Missing,
+            "is missing",
         ),
         (
             "missing-action",
             "---\nreasonCode: some-reason\n---\n",
             "nextAction",
             FrontmatterProblem::Missing,
+            "is missing",
         ),
-        ("no-block", "", "reasonCode", FrontmatterProblem::Missing),
+        (
+            "no-block",
+            "",
+            "reasonCode",
+            FrontmatterProblem::Missing,
+            "is missing",
+        ),
         (
             "repeated",
             "---\nreasonCode: one\nreasonCode: two\nnextAction: Fix it.\n---\n",
             "reasonCode",
             FrontmatterProblem::Repeated,
+            "is repeated",
         ),
         (
             "unknown",
             "---\nreasonCode: one\nnextAction: Fix it.\nlocation: `\"react\": $_`\n---\n",
             "location",
             FrontmatterProblem::Unknown,
+            "is unknown; the keys are `reasonCode`, `nextAction`, `locate`",
         ),
         (
             "malformed",
             "---\nreasonCode: Bad_Code\nnextAction: Fix it.\n---\n",
             "reasonCode",
             FrontmatterProblem::NotKebabCase,
+            "must be lowercase kebab-case, such as `missing-provenance`",
         ),
         (
             "empty",
             "---\nreasonCode:\nnextAction: Fix it.\n---\n",
             "reasonCode",
             FrontmatterProblem::Empty,
+            "has no value",
         ),
     ];
-    for (name, frontmatter, key, problem) in cases {
+    for (name, frontmatter, key, problem, text) in cases {
         let temp = tempfile::tempdir().expect("temp dir");
         let consumer = temp.path().join(format!("{name}.grit"));
         write(&consumer, &format!("{frontmatter}{body}"));
@@ -396,6 +408,7 @@ fn a_rule_without_valid_frontmatter_refuses_naming_the_file_and_the_key() {
             message.contains(&format!("{name}.grit")) && message.contains(key),
             "{name}: {message}"
         );
+        assert!(message.contains(text), "{name}: {message}");
     }
 }
 
@@ -419,4 +432,169 @@ fn a_frontmatter_block_that_never_closes_refuses_naming_the_file() {
         matches!(&error, GritlintError::RuleFrontmatterUnclosed { path } if *path == consumer),
         "{error}"
     );
+}
+
+#[test]
+fn a_consumer_directory_with_two_rules_loads_both() {
+    let temp = tempfile::tempdir().expect("temp dir");
+    let dir = temp.path().join("consumer");
+    write(&dir.join("a.grit"), PLAIN_RULE);
+    write(&dir.join("b.grit"), PLAIN_RULE);
+
+    let rules = decode::load_rules(
+        &[],
+        &BTreeMap::new(),
+        sources(std::slice::from_ref(&dir)),
+        Path::new("gritlint.json"),
+    )
+    .expect("load the consumer rules");
+
+    assert_eq!(ids(&rules), ["local/a", "local/b"]);
+}
+
+#[test]
+fn a_pack_ignores_a_non_rule_file_in_its_rules_directory() {
+    let temp = tempfile::tempdir().expect("temp dir");
+    let dir = make_pack(temp.path(), "pack-one", &[], &[("react.grit", PLAIN_RULE)]);
+    write(&dir.join("rules/LICENSE"), "MIT\n");
+
+    let pack = pack_of(&dir);
+
+    assert_eq!(pack.sources().len(), 1, "{pack:?}");
+    assert!(
+        pack.sources()[0]
+            .path()
+            .as_path()
+            .ends_with("rules/react.grit"),
+        "{pack:?}"
+    );
+}
+
+#[test]
+fn a_heading_inside_an_example_block_stays_in_the_message() {
+    let temp = tempfile::tempdir().expect("temp dir");
+    let body = format!(
+        "{FRONTMATTER}\n```\n# Example heading\n```\n\nProse that describes the rule.\n\n```grit\nlanguage json\n`\"console\": $_`\n```\n"
+    );
+    let dir = make_pack(
+        temp.path(),
+        "pack-one",
+        &[],
+        &[("heading.md", body.as_str())],
+    );
+
+    let rules = decode::load_rules(
+        &[pack_of(&dir)],
+        &enabled("pack-one", &[]),
+        Vec::new(),
+        Path::new("gritlint.json"),
+    )
+    .expect("load the pack");
+
+    assert_eq!(
+        rules.first().rule().message(),
+        "```\n# Example heading\n```\n\nProse that describes the rule."
+    );
+}
+
+#[test]
+fn a_markdown_rule_with_two_grit_blocks_is_refused() {
+    let temp = tempfile::tempdir().expect("temp dir");
+    let body = format!(
+        "{FRONTMATTER}```grit\nlanguage json\n`\"console\": $_`\n```\n\n```grit\nlanguage json\n`\"react\": $_`\n```\n"
+    );
+    let dir = make_pack(temp.path(), "pack-one", &[], &[("two.md", body.as_str())]);
+
+    let error = error_of(decode::load_rules(
+        &[pack_of(&dir)],
+        &enabled("pack-one", &[]),
+        Vec::new(),
+        Path::new("gritlint.json"),
+    ));
+
+    assert!(
+        matches!(error, GritlintError::RuleNoGritBlock { .. }),
+        "{error}"
+    );
+    assert!(error.to_string().contains("two.md"), "{error}");
+}
+
+#[test]
+fn a_rule_whose_example_block_precedes_the_grit_block_keeps_its_body() {
+    let temp = tempfile::tempdir().expect("temp dir");
+    let body = format!(
+        "{FRONTMATTER}```json\n{{\n  \"probe\": 1\n}}\n```\n\nExample prose.\n\n```grit\nlanguage json\n`\"console\": $_`\n```\nIt keeps this trailing prose.\n"
+    );
+    let dir = make_pack(
+        temp.path(),
+        "pack-one",
+        &[],
+        &[("example.md", body.as_str())],
+    );
+
+    let rules = decode::load_rules(
+        &[pack_of(&dir)],
+        &enabled("pack-one", &[]),
+        Vec::new(),
+        Path::new("gritlint.json"),
+    )
+    .expect("load the pack");
+
+    assert_eq!(ids(&rules), ["pack-one/example"]);
+    assert_eq!(
+        rules.first().rule().body(),
+        "language json\n`\"console\": $_`"
+    );
+}
+
+#[test]
+fn a_rule_cannot_call_a_pattern_declared_in_another_scope() {
+    let temp = tempfile::tempdir().expect("temp dir");
+    let shared = make_pack(
+        temp.path(),
+        "shared",
+        &[],
+        &[(
+            "helper.grit",
+            &format!(
+                "{FRONTMATTER}language json\npattern shared_helper() {{ `\"react\": $_` }}\nshared_helper()\n"
+            ),
+        )],
+    );
+    let caller = temp.path().join("caller.grit");
+    write(
+        &caller,
+        &format!("{FRONTMATTER}language json\nshared_helper()\n"),
+    );
+
+    let error = error_of(decode::load_rules(
+        &[pack_of(&shared)],
+        &enabled("shared", &[]),
+        sources(std::slice::from_ref(&caller)),
+        Path::new("gritlint.json"),
+    ));
+
+    assert!(
+        matches!(error, GritlintError::RuleCompile { .. }),
+        "{error}"
+    );
+    assert!(error.to_string().contains("local/caller"), "{error}");
+}
+
+#[test]
+fn a_consumer_directory_loads_nested_rules_but_never_a_fixtures_subtree() {
+    let temp = tempfile::tempdir().expect("temp dir");
+    let dir = temp.path().join("consumer");
+    write(&dir.join("nested/deep.grit"), PLAIN_RULE);
+    write(&dir.join("fixtures/hidden.grit"), PLAIN_RULE);
+
+    let rules = decode::load_rules(
+        &[],
+        &BTreeMap::new(),
+        sources(std::slice::from_ref(&dir)),
+        Path::new("gritlint.json"),
+    )
+    .expect("load the consumer rules");
+
+    assert_eq!(ids(&rules), ["local/deep"]);
 }

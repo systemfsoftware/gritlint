@@ -6,6 +6,23 @@
 )]
 
 use gritlint_core::domain::{RelPath, RelPathRefusal};
+use gritlint_core::{GritlintError, decode};
+use std::path::Path;
+
+#[test]
+fn an_absolute_path_refuses_with_the_reason() {
+    let error = decode::select_files(
+        vec!["/etc/passwd.json".into()],
+        Path::new("/tmp/gritlint-root"),
+    )
+    .expect_err("a path outside the root is not a usable relative path");
+
+    assert!(matches!(error, GritlintError::RelPath { .. }), "{error:?}");
+    assert!(
+        error.to_string().contains("the path is absolute"),
+        "the CLI prints this reason: {error}"
+    );
+}
 
 #[test]
 fn relpath_states_its_refusal_boundary() {

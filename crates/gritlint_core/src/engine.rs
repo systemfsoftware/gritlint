@@ -60,7 +60,7 @@ pub struct CompileRequest {
 #[derive(Debug)]
 pub struct Compiled {
     problem: Problem,
-    warnings: Vec<ParseDiagnostic>,
+    warnings: Vec<EngineDiagnostic>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -80,7 +80,7 @@ pub struct EngineMatch {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ParseDiagnostic {
+pub struct EngineDiagnostic {
     pub path: String,
     pub level: u16,
     pub message: String,
@@ -88,10 +88,32 @@ pub struct ParseDiagnostic {
     pub column: u32,
 }
 
+const FILE_PARSING_ERROR_LEVEL: u16 = 300;
+const FILE_REPARSING_ERROR_LEVEL: u16 = 531;
+const FILE_TOO_BIG_LEVEL: u16 = 310;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub enum DiagnosticKind {
+    Parse,
+    TooLarge,
+    Other,
+}
+
+impl EngineDiagnostic {
+    #[must_use]
+    pub const fn kind(&self) -> DiagnosticKind {
+        match self.level {
+            FILE_PARSING_ERROR_LEVEL | FILE_REPARSING_ERROR_LEVEL => DiagnosticKind::Parse,
+            FILE_TOO_BIG_LEVEL => DiagnosticKind::TooLarge,
+            _ => DiagnosticKind::Other,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct EngineOutcome {
     pub matches: Vec<EngineMatch>,
-    pub diagnostics: Vec<ParseDiagnostic>,
+    pub diagnostics: Vec<EngineDiagnostic>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -128,7 +150,7 @@ pub fn compile(request: &CompileRequest) -> Result<Compiled, EngineError> {
     let warnings = compilation
         .compilation_warnings
         .iter()
-        .map(|warning| ParseDiagnostic {
+        .map(|warning| EngineDiagnostic {
             path: warning
                 .file
                 .as_ref()
@@ -163,7 +185,7 @@ impl Compiled {
 
         for result in self.problem.execute_files(files, &context) {
             match result {
-                MatchResult::AnalysisLog(log) => outcome.diagnostics.push(ParseDiagnostic {
+                MatchResult::AnalysisLog(log) => outcome.diagnostics.push(EngineDiagnostic {
                     path: log.file,
                     level: log.level,
                     message: log.message,
