@@ -4,6 +4,7 @@
 {
   lib,
   runCommand,
+  python3,
   craneLib,
   craneLibMsrv,
   gritlint,
@@ -13,6 +14,8 @@
 
 let
   inherit (gritlint.passthru) devArgs devArtifacts;
+
+  vendorLaws = import ./gritlint-vendor-checks.nix { inherit lib runCommand python3; };
 
   unwrapped = "${gritlint}/bin/gritlint";
 
@@ -110,6 +113,16 @@ in
       fi
       touch $out
     '';
+
+  gritlint-vendor-ignores-workspace-versions = vendorLaws.ignoresWorkspaceVersions {
+    inherit (gritlint.passthru) vendorFor;
+    lock = gritlint.passthru.cargoLock;
+  };
+
+  gritlint-vendor-engine-copies = vendorLaws.engineCopies {
+    inherit (gritlint.passthru) vendor engineSource;
+    lock = gritlint.passthru.cargoLock;
+  };
 
   gritlint-decide-loops = runCommand "gritlint-decide-loops" { } ''
     if grep -nE '^[[:space:]]*(for|while|loop)[[:space:](]' ${../crates/gritlint_core/src/decide.rs}; then
