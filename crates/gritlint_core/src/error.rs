@@ -117,34 +117,72 @@ const TARGET_DOES_NOT_PARSE: &str = "target-does-not-parse";
 const TARGET_TOO_LARGE: &str = "target-too-large";
 const TARGET_NOT_SCANNED: &str = "target-not-scanned";
 
+/// Why the engine refused one target file. Only a parse failure has a position.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TargetReason {
+    DoesNotParse { line: u32, column: u32 },
+    TooLarge,
+    NotScanned,
+}
+
+impl TargetReason {
+    #[must_use]
+    pub const fn code(self) -> &'static str {
+        match self {
+            Self::DoesNotParse { .. } => TARGET_DOES_NOT_PARSE,
+            Self::TooLarge => TARGET_TOO_LARGE,
+            Self::NotScanned => TARGET_NOT_SCANNED,
+        }
+    }
+
+    #[must_use]
+    pub const fn position(self) -> Option<(u32, u32)> {
+        match self {
+            Self::DoesNotParse { line, column } => Some((line, column)),
+            Self::TooLarge | Self::NotScanned => None,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct TargetRefusal<'a> {
-    pub file: &'a str,
-    pub reason_code: &'static str,
-    pub position: Option<(u32, u32)>,
+    file: &'a str,
+    reason: TargetReason,
+}
+
+impl<'a> TargetRefusal<'a> {
+    #[must_use]
+    pub const fn file(&self) -> &'a str {
+        self.file
+    }
+
+    #[must_use]
+    pub const fn reason(&self) -> TargetReason {
+        self.reason
+    }
 }
 
 impl GritlintError {
     #[must_use]
     pub fn target(&self) -> Option<TargetRefusal<'_>> {
-        let refusal = |file, reason_code, position| {
-            Some(TargetRefusal {
-                file,
-                reason_code,
-                position,
-            })
-        };
+        let refusal = |file, reason| Some(TargetRefusal { file, reason });
         if let Self::TargetParse {
             file, line, column, ..
         } = self
         {
-            return refusal(file, TARGET_DOES_NOT_PARSE, Some((*line, *column)));
+            return refusal(
+                file,
+                TargetReason::DoesNotParse {
+                    line: *line,
+                    column: *column,
+                },
+            );
         }
         if let Self::TargetTooLarge { file, .. } = self {
-            return refusal(file, TARGET_TOO_LARGE, None);
+            return refusal(file, TargetReason::TooLarge);
         }
         if let Self::TargetNotScanned { file, .. } = self {
-            return refusal(file, TARGET_NOT_SCANNED, None);
+            return refusal(file, TargetReason::NotScanned);
         }
         None
     }

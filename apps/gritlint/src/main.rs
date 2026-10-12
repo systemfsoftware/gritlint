@@ -2,7 +2,7 @@ use clap::{Args, Parser, Subcommand, ValueEnum};
 use gritlint_core::decode::{self, GritlintConfig};
 use gritlint_core::domain::{CompiledRule, EmbeddedFile, Pack, ParsedRule, Verdict};
 use gritlint_core::error::GritlintError;
-use gritlint_core::workspace::{self, WorkspaceInputs};
+use gritlint_core::workspace::WorkspaceInputs;
 use gritlint_core::{decide, encode, export, lsp, shell};
 use include_dir::{Dir, include_dir};
 use std::io::{IsTerminal, Write};
@@ -141,12 +141,16 @@ fn report_exit(result: Result<ExitCode, GritlintError>) -> ExitCode {
 }
 
 fn lsp(args: &InputArgs) -> Result<ExitCode, GritlintError> {
-    let ending = lsp::serve_stdio(&args.workspace(), &embedded_packs()?);
+    let packs = embedded_packs()?;
+    let (connection, io_threads) = lsp_server::Connection::stdio();
+    let ending = lsp::serve(&connection, &shell::Disk, &args.workspace(), &packs);
+    drop(connection);
+    let _ = io_threads.join();
     Ok(ExitCode::from(ending.exit_code()))
 }
 
 fn export_biome(args: &ExportBiomeArgs) -> Result<ExitCode, GritlintError> {
-    let workspace = workspace::load(&args.inputs.workspace(), &embedded_packs()?)?;
+    let workspace = shell::load_workspace(&args.inputs.workspace(), &embedded_packs()?)?;
     let rules: Vec<&ParsedRule> = workspace.rules().iter().map(CompiledRule::rule).collect();
     let text = match &args.rule {
         None => export::listing(&rules),
@@ -172,8 +176,8 @@ fn schema(args: &SchemaArgs) -> Result<ExitCode, GritlintError> {
 }
 
 fn check(args: &CheckArgs) -> Result<ExitCode, GritlintError> {
-    let workspace = workspace::load(&args.inputs.workspace(), &embedded_packs()?)?;
-    let files = workspace.select()?;
+    let workspace = shell::load_workspace(&args.inputs.workspace(), &embedded_packs()?)?;
+    let files = shell::select(&workspace)?;
     let plan = decide::plan(workspace.rules(), &files);
     let sources = shell::read_sources(workspace.root(), &decide::sources_needed(&plan))?;
     let outcome = decide::scan(&plan, &sources)?;

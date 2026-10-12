@@ -1,0 +1,11 @@
+language js(jsx)
+
+pattern forbiddenLicense() { `"UNLICENSED"` }
+
+pattern gritlint_exported_rule() {
+  `console.log($message)`
+}
+
+gritlint_exported_rule() as $gritlint_match where {
+  register_diagnostic(span = $gritlint_match, message = "JSX code does not log.", severity = "error")
+}

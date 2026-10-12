@@ -1,7 +1,8 @@
 #![allow(clippy::expect_used, clippy::disallowed_methods)]
 
-use gritlint_core::decode;
-use gritlint_core::domain::{EmbeddedFile, Pack, RelPath};
+mod common;
+
+use gritlint_core::domain::Pack;
 use gritlint_core::lsp::{self, Ending};
 use gritlint_core::shell;
 use gritlint_core::workspace::WorkspaceInputs;
@@ -25,25 +26,6 @@ fn fixture(relative: &str) -> PathBuf {
     .expect("a committed fixture")
 }
 
-fn bundled_packs() -> Vec<Pack> {
-    let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../packs");
-    let tree = shell::read_tree(&dir).expect("read the bundled packs");
-    let files: Vec<EmbeddedFile> = tree
-        .files()
-        .iter()
-        .map(|file| {
-            EmbeddedFile::new(
-                RelPath::from_root(tree.root(), file.path())
-                    .expect("a file below the packs root")
-                    .as_str()
-                    .to_owned(),
-                file.contents().to_owned(),
-            )
-        })
-        .collect();
-    decode::embedded_packs(&files).expect("decode the bundled packs")
-}
-
 fn uri(path: &Path) -> String {
     format!("file://{}", path.display())
 }
@@ -55,16 +37,20 @@ struct Session {
 
 impl Session {
     fn start(root: &str, rules: &[&str], packs: Vec<Pack>) -> Self {
+        Self::at(fixture(root), rules, packs)
+    }
+
+    fn at(root: PathBuf, rules: &[&str], packs: Vec<Pack>) -> Self {
         let inputs = WorkspaceInputs {
             config: None,
             rules: rules
                 .iter()
                 .map(|rule| fixture(&format!("lsp/rules/{rule}.md")))
                 .collect(),
-            root: fixture(root),
+            root,
         };
         let (server, client) = Connection::memory();
-        let server = thread::spawn(move || lsp::serve(&server, &inputs, &packs));
+        let server = thread::spawn(move || lsp::serve(&server, &shell::Disk, &inputs, &packs));
         Self { client, server }
     }
 
@@ -342,7 +328,7 @@ fn a_bundled_multifile_rule_reports_in_the_open_buffer() {
     let session = Session::start(
         "../../../../packs/npm-provenance/fixtures/repository-url/bad/other-repository",
         &[],
-        bundled_packs(),
+        common::packs_in(&common::bundled_packs_dir()),
     );
     assert_eq!(
         session
@@ -576,6 +562,62 @@ fn a_closed_sibling_that_does_not_parse_is_named_on_the_open_documents_of_its_ba
         summary(published.get(&uri(&second)).expect("b/package.json")),
         vec![("unlicensed".to_owned(), (1, 2, 1, 25))]
     );
+
+    assert_eq!(session.shutdown(), Ending::Shutdown);
+}
+
+#[test]
+fn a_closed_sibling_over_the_size_limit_is_named_at_the_start_of_the_open_documents_of_its_batch() {
+    let temp = tempfile::tempdir().expect("temp dir");
+    let root = fs::canonicalize(temp.path()).expect("canonical temp dir");
+    fs::create_dir(root.join("a")).expect("create a/");
+    let huge = format!("{{\"padding\": \"{}\"}}\n", "x".repeat(1_000_001));
+    fs::write(root.join("a/huge.json"), huge).expect("write a/huge.json");
+    let document = root.join("a/package.json");
+    let text = "{\n  \"license\": \"UNLICENSED\"\n}\n";
+    fs::write(&document, text).expect("write a/package.json");
+    let session = Session::at(root, &["license", "directory-read"], Vec::new());
+    assert_eq!(
+        session.initialize(&[]).err().map(|error| error.message),
+        None
+    );
+
+    session.open(&document, text);
+    let diagnostics = session.published().diagnostics;
+    assert_eq!(
+        summary(&diagnostics),
+        vec![
+            ("unlicensed".to_owned(), (1, 2, 1, 25)),
+            ("target-too-large".to_owned(), (0, 0, 0, 0)),
+        ]
+    );
+    let refusal = diagnostics.get(1).expect("the sibling's refusal");
+    assert!(
+        refusal
+            .message
+            .starts_with("a/huge.json: target-too-large: "),
+        "{}",
+        refusal.message
+    );
+
+    assert_eq!(session.shutdown(), Ending::Shutdown);
+}
+
+#[test]
+fn a_missing_root_initializes_and_publishes_empty_sets_as_check_selects_nothing() {
+    let temp = tempfile::tempdir().expect("temp dir");
+    let root = fs::canonicalize(temp.path())
+        .expect("canonical temp dir")
+        .join("missing");
+    let document = root.join("package.json");
+    let session = Session::at(root, &["license"], Vec::new());
+    assert_eq!(
+        session.initialize(&[]).err().map(|error| error.message),
+        None
+    );
+
+    session.open(&document, "{\n  \"license\": \"UNLICENSED\"\n}\n");
+    assert_eq!(session.published().diagnostics, Vec::new());
 
     assert_eq!(session.shutdown(), Ending::Shutdown);
 }

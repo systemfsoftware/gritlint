@@ -8,10 +8,34 @@ use std::fmt;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ExportReason {
+    UnknownRule,
+    Multifile,
+    Language,
+    Construct,
+    Rewrite,
+    Library,
+}
+
+impl ExportReason {
+    #[must_use]
+    pub const fn code(self) -> &'static str {
+        match self {
+            Self::UnknownRule => "export-unknown-rule",
+            Self::Multifile => "export-multifile",
+            Self::Language => "export-language",
+            Self::Construct => "export-construct",
+            Self::Rewrite => "export-rewrite",
+            Self::Library => "export-library",
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ExportRefusal {
     rule: String,
-    reason_code: &'static str,
+    reason: ExportReason,
     detail: String,
     next_action: &'static str,
 }
@@ -20,21 +44,21 @@ impl ExportRefusal {
     #[must_use]
     pub fn new(
         rule: String,
-        reason_code: &'static str,
+        reason: ExportReason,
         detail: String,
         next_action: &'static str,
     ) -> Self {
         Self {
             rule,
-            reason_code,
+            reason,
             detail,
             next_action,
         }
     }
 
     #[must_use]
-    pub fn reason_code(&self) -> &'static str {
-        self.reason_code
+    pub fn reason(&self) -> ExportReason {
+        self.reason
     }
 
     #[must_use]
@@ -48,7 +72,10 @@ impl fmt::Display for ExportRefusal {
         write!(
             formatter,
             "{}: {}: {} Next action: {}",
-            self.rule, self.reason_code, self.detail, self.next_action
+            self.rule,
+            self.reason.code(),
+            self.detail,
+            self.next_action
         )
     }
 }

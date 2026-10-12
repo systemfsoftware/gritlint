@@ -515,6 +515,7 @@ dependencies = [
  "clap",
  "gritlint_core",
  "include_dir",
+ "lsp-server",
  "serde_json",
  "tracing",
  "tracing-subscriber",

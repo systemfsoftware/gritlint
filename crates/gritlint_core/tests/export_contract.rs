@@ -1,14 +1,14 @@
 #![allow(clippy::expect_used, clippy::disallowed_methods)]
 
+mod common;
+
+use common::packs_in;
 use gritlint_core::decide;
-use gritlint_core::decode;
-use gritlint_core::domain::{
-    CompiledRule, EmbeddedFile, Language, NonEmpty, Pack, ParsedRule, RelPath,
-};
+use gritlint_core::domain::{CompiledRule, Language, NonEmpty, ParsedRule};
 use gritlint_core::engine::{self, CompileRequest, InputFile, MatchRange};
 use gritlint_core::export;
 use gritlint_core::shell;
-use gritlint_core::workspace::{self, Workspace, WorkspaceInputs};
+use gritlint_core::workspace::{Workspace, WorkspaceInputs};
 use std::collections::BTreeMap;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -23,31 +23,13 @@ fn committed(relative: &str) -> String {
     fs::read_to_string(fixtures().join(relative)).expect("read a committed fixture")
 }
 
-fn packs_in(dir: &Path) -> Vec<Pack> {
-    let tree = shell::read_tree(dir).expect("read the packs");
-    let files: Vec<EmbeddedFile> = tree
-        .files()
-        .iter()
-        .map(|file| {
-            EmbeddedFile::new(
-                RelPath::from_root(tree.root(), file.path())
-                    .expect("a file below the packs root")
-                    .as_str()
-                    .to_owned(),
-                file.contents().to_owned(),
-            )
-        })
-        .collect();
-    decode::embedded_packs(&files).expect("decode the packs")
-}
-
 fn load(config: &str, packs: &Path, root: &str) -> Workspace {
     let inputs = WorkspaceInputs {
         config: Some(fixtures().join(config)),
         rules: Vec::new(),
         root: fixtures().join(root),
     };
-    workspace::load(&inputs, &packs_in(packs)).expect("load the workspace")
+    shell::load_workspace(&inputs, &packs_in(packs)).expect("load the workspace")
 }
 
 fn fixture_workspace() -> Workspace {
@@ -61,7 +43,7 @@ fn rules(workspace: &Workspace) -> Vec<&ParsedRule> {
 fn exported(rules: &[&ParsedRule], id: &str) -> Result<String, (&'static str, String)> {
     export::find(rules, id)
         .and_then(|rule| export::biome(rule, rules))
-        .map_err(|refusal| (refusal.reason_code(), refusal.to_string()))
+        .map_err(|refusal| (refusal.reason().code(), refusal.to_string()))
 }
 
 #[test]
@@ -80,7 +62,9 @@ fn each_exportable_rule_renders_its_committed_plugin() {
     let rules = rules(&workspace);
 
     for name in [
+        "bare-js-console",
         "forbidden-license",
+        "jsx-console",
         "license_value",
         "no-console-log",
         "no-important",
@@ -207,7 +191,7 @@ fn check_reports_the_same_two_ranges_the_plugin_matches() {
         .find(|compiled| compiled.rule().id().as_string() == "export-fixtures/forbidden-license")
         .expect("the rule is enabled")
         .clone();
-    let files = workspace.select().expect("select the tree");
+    let files = shell::select(&workspace).expect("select the tree");
     let plan = decide::plan(&NonEmpty::from_head(rule, Vec::new()), &files);
     let sources =
         shell::read_sources(workspace.root(), &decide::sources_needed(&plan)).expect("read");

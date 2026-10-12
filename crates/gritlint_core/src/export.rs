@@ -1,4 +1,4 @@
-use crate::domain::{ExportRefusal, ParsedRule};
+use crate::domain::{ExportReason, ExportRefusal, ParsedRule};
 use grit_util::{Ast as _, AstNode as _, Order, traverse};
 use marzano_language::grit_parser::MarzanoGritParser;
 use marzano_language::language::Tree;
@@ -19,7 +19,7 @@ pub fn find<'a>(rules: &[&'a ParsedRule], id: &str) -> Result<&'a ParsedRule, Ex
         .ok_or_else(|| {
             ExportRefusal::new(
                 id.to_owned(),
-                "export-unknown-rule",
+                ExportReason::UnknownRule,
                 "no enabled rule has this id.".to_owned(),
                 "run `gritlint export biome` without `--rule` to list the enabled rule ids.",
             )
@@ -27,12 +27,12 @@ pub fn find<'a>(rules: &[&'a ParsedRule], id: &str) -> Result<&'a ParsedRule, Ex
 }
 
 pub fn biome(rule: &ParsedRule, all: &[&ParsedRule]) -> Result<String, ExportRefusal> {
-    let refuse = |reason_code, detail: String, next_action| {
-        ExportRefusal::new(rule.id().as_string(), reason_code, detail, next_action)
+    let refuse = |reason, detail: String, next_action| {
+        ExportRefusal::new(rule.id().as_string(), reason, detail, next_action)
     };
     let root = parse(rule.body()).map_err(|error| {
         refuse(
-            "export-construct",
+            ExportReason::Construct,
             format!("the rule body does not parse as GritQL: {error}."),
             "report the rule to gritlint; `gritlint check` compiled it.",
         )
@@ -40,14 +40,14 @@ pub fn biome(rule: &ParsedRule, all: &[&ParsedRule]) -> Result<String, ExportRef
     let body = Body::read(&root.root_node());
     if body.multifile {
         return Err(refuse(
-            "export-multifile",
+            ExportReason::Multifile,
             "the rule is multifile, and a Biome plugin sees one file at a time.".to_owned(),
             "keep this rule in `gritlint check`; only a single-file rule exports.",
         ));
     }
     if let Some(language) = body.unsupported_language() {
         return Err(refuse(
-            "export-language",
+            ExportReason::Language,
             format!(
                 "`language {language}` is not a Biome plugin language: Biome plugins take css, js and json, and js only without a flavor or as typescript or jsx."
             ),
@@ -56,14 +56,14 @@ pub fn biome(rule: &ParsedRule, all: &[&ParsedRule]) -> Result<String, ExportRef
     }
     if body.foreign_function {
         return Err(refuse(
-            "export-construct",
+            ExportReason::Construct,
             "the rule defines a JavaScript function (`function … js { … }`), which Biome does not compile.".to_owned(),
             "rewrite the function as a GritQL pattern or predicate, or keep this rule in `gritlint check`.",
         ));
     }
     if body.rewrite {
         return Err(refuse(
-            "export-rewrite",
+            ExportReason::Rewrite,
             "the rule rewrites (`=>`), and gritlint never edits files.".to_owned(),
             "remove the rewrite to export a rule that only reports.",
         ));
@@ -85,7 +85,7 @@ pub fn biome(rule: &ParsedRule, all: &[&ParsedRule]) -> Result<String, ExportRef
         .find(|name| siblings.contains(*name))
     {
         return Err(refuse(
-            "export-library",
+            ExportReason::Library,
             format!(
                 "the rule calls `{called}`, which another rule of its pack defines, and a plugin cannot reach it."
             ),
@@ -105,7 +105,7 @@ pub fn listing(rules: &[&ParsedRule]) -> String {
             Err(refusal) => format!(
                 "{} refused {}: {}",
                 rule.id(),
-                refusal.reason_code(),
+                refusal.reason().code(),
                 refusal.next_action()
             ),
         };

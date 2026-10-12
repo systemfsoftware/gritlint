@@ -1,8 +1,7 @@
 use crate::decide;
 use crate::domain::{Finding, Outcome, Pack, RelPath, SelectedFiles, Sources};
-use crate::error::GritlintError;
-use crate::shell;
-use crate::workspace::{self, Workspace, WorkspaceInputs};
+use crate::error::{GritlintError, TargetReason};
+use crate::workspace::{Workspace, WorkspaceInputs};
 use lsp_server::{Connection, Message, Notification, Request, RequestId, Response};
 use lsp_types::notification::{
     DidChangeTextDocument, DidCloseTextDocument, DidOpenTextDocument, DidSaveTextDocument, Exit,
@@ -19,7 +18,7 @@ use lsp_types::{
 use serde::de::DeserializeOwned;
 use std::cell::Cell;
 use std::collections::{BTreeMap, BTreeSet};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 const INVALID_REQUEST: i32 = -32600;
 const SERVER_NOT_INITIALIZED: i32 = -32002;
@@ -44,23 +43,30 @@ impl Ending {
     }
 }
 
-#[must_use]
-pub fn serve_stdio(inputs: &WorkspaceInputs, packs: &[Pack]) -> Ending {
-    let (connection, io_threads) = Connection::stdio();
-    let ending = serve(&connection, inputs, packs);
-    drop(connection);
-    let _ = io_threads.join();
-    ending
+pub trait Files {
+    fn load(&self, inputs: &WorkspaceInputs, packs: &[Pack]) -> Result<Workspace, GritlintError>;
+    fn select(&self, workspace: &Workspace) -> Result<SelectedFiles, GritlintError>;
+    fn read(&self, root: &Path, paths: &[RelPath]) -> Result<Sources, GritlintError>;
+    fn absolute(&self, path: &Path) -> Result<PathBuf, GritlintError>;
 }
 
 #[must_use]
-pub fn serve(connection: &Connection, inputs: &WorkspaceInputs, packs: &[Pack]) -> Ending {
+pub fn serve(
+    connection: &Connection,
+    files: &dyn Files,
+    inputs: &WorkspaceInputs,
+    packs: &[Pack],
+) -> Ending {
     let Ok((id, params)) = connection.initialize_start() else {
         return Ending::Exit;
     };
     let encoding = Encoding::negotiate(params);
-    let loaded = workspace::load(inputs, packs)
-        .and_then(|workspace| shell::absolute(workspace.root()).map(|root| (workspace, root)));
+    let loaded = files.load(inputs, packs).map(|workspace| {
+        let root = files
+            .absolute(workspace.root())
+            .unwrap_or_else(|_| workspace.root().to_owned());
+        (workspace, root)
+    });
     match loaded {
         Err(error) => {
             refuse(connection, id, &error);
@@ -75,6 +81,7 @@ pub fn serve(connection: &Connection, inputs: &WorkspaceInputs, packs: &[Pack]) 
             }
             let server = Server {
                 connection,
+                files,
                 workspace,
                 root,
                 encoding,
@@ -204,8 +211,7 @@ struct Document {
 
 struct Refusal {
     file: RelPath,
-    reason_code: &'static str,
-    position: Option<(u32, u32)>,
+    reason: TargetReason,
     message: String,
     batch_mates: BTreeSet<RelPath>,
 }
@@ -218,6 +224,7 @@ enum Handled {
 
 struct Server<'a> {
     connection: &'a Connection,
+    files: &'a dyn Files,
     workspace: Workspace,
     root: PathBuf,
     encoding: Encoding,
@@ -339,7 +346,7 @@ impl Server<'_> {
         let path = std::path::Path::new(decoded.as_ref());
         RelPath::from_root(&self.root, path)
             .ok()
-            .or_else(|| RelPath::from_root(&self.root, &shell::absolute(path).ok()?).ok())
+            .or_else(|| RelPath::from_root(&self.root, &self.files.absolute(path).ok()?).ok())
     }
 
     fn publish(&self) {
@@ -367,7 +374,7 @@ impl Server<'_> {
             .into_iter()
             .filter_map(|document| document.path.clone().map(|path| (path, document)))
             .collect();
-        let files = match self.workspace.select() {
+        let files = match self.files.select(&self.workspace) {
             Ok(files) => files,
             Err(GritlintError::NoFilesSelected { .. }) => return Ok(BTreeMap::new()),
             Err(error) => return Err(error),
@@ -397,14 +404,13 @@ impl Server<'_> {
                 Ok(outcome) => return Ok((outcome, refusals)),
                 Err(error) => error,
             };
-            let refusal = refusal_of(&error, &plan).ok_or(error)?;
+            let Some(refusal) = refusal_of(&error, &plan) else {
+                return Err(error);
+            };
             let narrowed = decide::without(plan, &refusal.file);
             let narrowed_needed = decide::sources_needed(&narrowed);
             if narrowed_needed == needed {
-                return Err(GritlintError::TargetNotScanned {
-                    file: refusal.file.as_str().to_owned(),
-                    message: refusal.message,
-                });
+                return Err(error);
             }
             refusals.push(refusal);
             plan = narrowed;
@@ -420,14 +426,13 @@ impl Server<'_> {
         let (overlay, disk): (Vec<&RelPath>, Vec<&RelPath>) =
             needed.iter().partition(|path| open.contains_key(*path));
         let disk: Vec<RelPath> = disk.into_iter().cloned().collect();
-        Ok(
-            shell::read_sources(&self.root, &disk)?.overlaid(overlay.into_iter().filter_map(
-                |path| {
-                    open.get(path)
-                        .map(|document| (path.clone(), document.text.clone()))
-                },
-            )),
-        )
+        Ok(self
+            .files
+            .read(&self.root, &disk)?
+            .overlaid(overlay.into_iter().filter_map(|path| {
+                open.get(path)
+                    .map(|document| (path.clone(), document.text.clone()))
+            })))
     }
 
     fn diagnostics(
@@ -487,7 +492,7 @@ impl Server<'_> {
     }
 
     fn refusal(&self, refusal: &Refusal, path: &RelPath, lines: &[&str]) -> Diagnostic {
-        let start = match refusal.position {
+        let start = match refusal.reason.position() {
             Some((line, column)) if refusal.file == *path => {
                 self.encoding.position(lines, line, column)
             }
@@ -495,7 +500,7 @@ impl Server<'_> {
         };
         diagnostic(
             Range::new(start, start),
-            refusal.reason_code,
+            refusal.reason.code(),
             refusal.message.clone(),
         )
     }
@@ -538,12 +543,11 @@ fn selected_open(files: &SelectedFiles, open: &BTreeMap<RelPath, &Document>) -> 
 
 fn refusal_of(error: &GritlintError, plan: &crate::domain::ScanPlan) -> Option<Refusal> {
     let target = error.target()?;
-    let file = RelPath::new(target.file).ok()?;
+    let file = RelPath::new(target.file()).ok()?;
     let batch_mates = decide::batch_mates(plan, &file);
     Some(Refusal {
         file,
-        reason_code: target.reason_code,
-        position: target.position,
+        reason: target.reason(),
         message: error.to_string(),
         batch_mates,
     })

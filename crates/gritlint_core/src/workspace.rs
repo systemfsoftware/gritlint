@@ -1,7 +1,9 @@
 use crate::decode::{self, GritlintConfig};
-use crate::domain::{CompiledRule, IgnoreGlobs, NonEmpty, Pack, SelectedFiles};
+use crate::domain::{
+    CompiledRule, IgnoreGlobs, NonEmpty, Pack, PackName, ParamName, RuleSource, SelectedFiles,
+};
 use crate::error::GritlintError;
-use crate::shell;
+use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 #[derive(Debug, Clone)]
@@ -9,6 +11,15 @@ pub struct WorkspaceInputs {
     pub config: Option<PathBuf>,
     pub rules: Vec<PathBuf>,
     pub root: PathBuf,
+}
+
+impl WorkspaceInputs {
+    #[must_use]
+    pub fn config_path(&self) -> PathBuf {
+        self.config
+            .clone()
+            .unwrap_or_else(|| self.root.join("gritlint.json"))
+    }
 }
 
 pub struct Workspace {
@@ -28,45 +39,70 @@ impl Workspace {
         &self.rules
     }
 
-    pub fn select(&self) -> Result<SelectedFiles, GritlintError> {
-        decode::select_files(shell::walk(&self.root, &self.ignore), &self.root)
+    #[must_use]
+    pub fn ignore(&self) -> &IgnoreGlobs {
+        &self.ignore
+    }
+
+    pub fn select(&self, walked: Vec<PathBuf>) -> Result<SelectedFiles, GritlintError> {
+        decode::select_files(walked, &self.root)
     }
 }
 
-pub fn load(inputs: &WorkspaceInputs, packs: &[Pack]) -> Result<Workspace, GritlintError> {
-    let config_path = inputs
-        .config
-        .clone()
-        .unwrap_or_else(|| inputs.root.join("gritlint.json"));
-    let config = if inputs.config.is_some() || shell::is_file(&config_path) {
-        let text =
-            shell::read_to_string(&config_path).map_err(|source| GritlintError::ConfigRead {
-                path: config_path.clone(),
-                source,
-            })?;
-        GritlintConfig::parse(&text).map_err(|source| GritlintError::ConfigParse {
+pub struct Configured {
+    root: PathBuf,
+    config: GritlintConfig,
+    config_path: PathBuf,
+    enabled: BTreeMap<PackName, BTreeMap<ParamName, String>>,
+    rule_paths: Vec<PathBuf>,
+}
+
+impl Configured {
+    #[must_use]
+    pub fn rule_paths(&self) -> &[PathBuf] {
+        &self.rule_paths
+    }
+
+    pub fn load(
+        self,
+        packs: &[Pack],
+        rule_sources: Vec<RuleSource>,
+    ) -> Result<Workspace, GritlintError> {
+        let rules = decode::load_rules(packs, &self.enabled, rule_sources, &self.config_path)?;
+        let ignore = decode::ignore_globs(&self.config.ignore)?;
+        Ok(Workspace {
+            root: self.root,
+            rules,
+            ignore,
+        })
+    }
+}
+
+pub fn configure(
+    inputs: &WorkspaceInputs,
+    config_text: Option<&str>,
+) -> Result<Configured, GritlintError> {
+    let config_path = inputs.config_path();
+    let config = match config_text {
+        Some(text) => GritlintConfig::parse(text).map_err(|source| GritlintError::ConfigParse {
             path: config_path.clone(),
             source,
-        })?
-    } else {
-        GritlintConfig::default()
+        })?,
+        None => GritlintConfig::default(),
     };
-
-    let mut consumer: Vec<PathBuf> = config
+    let mut rule_paths: Vec<PathBuf> = config
         .rules
         .iter()
         .map(|path| resolve_against(&config_path, path))
         .collect();
-    consumer.extend(inputs.rules.iter().cloned());
-
+    rule_paths.extend(inputs.rules.iter().cloned());
     let enabled = decode::enabled_packs(&config, &config_path)?;
-    let rule_sources = shell::read_rule_sources(&consumer)?;
-    let rules = decode::load_rules(packs, &enabled, rule_sources, &config_path)?;
-    let ignore = decode::ignore_globs(&config.ignore)?;
-    Ok(Workspace {
+    Ok(Configured {
         root: inputs.root.clone(),
-        rules,
-        ignore,
+        config,
+        config_path,
+        enabled,
+        rule_paths,
     })
 }
 

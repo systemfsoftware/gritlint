@@ -15,6 +15,7 @@ path = "src/main.rs"
 clap = { workspace = true }
 gritlint_core = { path = "../../crates/gritlint_core" }
 include_dir = { workspace = true }
+lsp-server = { workspace = true }
 serde_json.workspace = true
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
