@@ -28,7 +28,7 @@ tags: [github-actions, actions-cache, ci-cache, cache-eviction, nix, binary-cach
 - #16, a tests-only change, ran its x86_64 job in 592 s. Its step times from the jobs API: `Nix store cache` 0 s, build 486 s, export 35 s, save 9 s.
 - On 2026-10-11 the caches API listed 6 entries totalling 10,545,221,338 bytes, all on `refs/pull/15/merge` and `refs/pull/16/merge` (the store-cache plan's Problem Frame).
 - After #15 merged, the first `main` push computed `nix-store-aarch64-linux-f54d03c9…`. #15's pull request had saved that exact key (cache entry 8798771673, since evicted), and the push still logged `Cache not found`, because `main` cannot read a pull request's merge ref. Its x86_64 job took 893 s.
-- On 2026-10-12 the release flow's `workflow_dispatch` on `changeset-release/main` (run 38266314981) saved 3,999,377,369 bytes on `refs/heads/changeset-release/main`, and #19's pull request saved 3,978,528,473 bytes on `refs/pull/19/merge`, taking the cache to 11,978,096,548 bytes.
+- On 2026-10-12 the release flow's `workflow_dispatch` on `changeset-release/main` (run 38266314981) saved 3,999,377,369 bytes on `refs/heads/changeset-release/main`, and #19's pull request saved 3,978,528,473 bytes on `refs/pull/19/merge`, taking the cache to 11,978,096,548 bytes. Between 16:45Z and 17:05Z #20 saved a pair on `refs/pull/20/merge` and #19 saved another aarch64 entry; by then the caches API listed 5 entries, all on those two merge refs, and none on `refs/heads/main`.
 
 ## What Didn't Work
 
@@ -79,7 +79,7 @@ GitHub's [dependency caching reference](https://docs.github.com/en/actions/refer
   - wrong: `if: steps.store-cache.outputs.cache-hit != 'true'` on a save step.
   - right: `if: github.ref == format('refs/heads/{0}', github.event.repository.default_branch) && steps.store-cache.outputs.cache-hit != 'true'`.
 - When CI slows down, list the cache entries by ref: `gh api 'repos/systemfsoftware/gritlint/actions/caches?per_page=100' --jq '.actions_caches[] | [.ref, .key, .size_in_bytes, .last_accessed_at] | @tsv'`. Entries on any ref other than `refs/heads/main` that are newer than the change mean a writer escaped the guard. Older ones are legacy entries; `gh cache delete <id>` removes them and needs `actions: write`.
-- The bundle is not permanent. GitHub deletes an entry nobody has accessed for 7 days. A pull request restore counts as an access, so this happens only after a week with no CI run at all. The next `main` push, or a `workflow_dispatch` on `main`, reseeds it, and until then pull requests build cold.
+- The bundle is not permanent. GitHub deletes an entry nobody has accessed for 7 days. A pull request restore counts as an access: the caches API moved `main`'s x86_64 entry's `last_accessed_at` to the minute a pull request job restored it. So this happens only after a week with no CI run at all. The next `main` push, or a `workflow_dispatch` on `main`, reseeds it, and until then pull requests build cold.
 
 ## Related Issues
 
