@@ -1,6 +1,6 @@
 {
   "name": "@systemfsoftware/gritlint",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "GritQL conventions platform: pack-driven rule runs over config files, powered by the biomejs/gritql engine.",
   "license": "MIT",
   "bin": {
