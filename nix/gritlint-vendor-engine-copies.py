@@ -7,11 +7,9 @@ from pathlib import Path
 
 engine, vendor, lock_json = (Path(arg) for arg in sys.argv[1:4])
 manifest = engine / "crates" / "language" / "Cargo.toml"
-locked = {
-    (package["name"], package["version"])
-    for package in json.loads(lock_json.read_text())["package"]
-    if package.get("source", "").startswith("git+")
-}
+packages = json.loads(lock_json.read_text())["package"]
+locked = {(package["name"], package["version"]) for package in packages if package.get("source", "").startswith("git+")}
+patched = {package["name"] for package in packages if "source" not in package}
 workspace_version = tomllib.loads((engine / "Cargo.toml").read_text())["workspace"]["package"]["version"]
 not_compared = {Path("Cargo.toml"), Path(".cargo-checksum.json")}
 sources = [source for source in vendor.iterdir() if source.is_dir()]
@@ -50,8 +48,8 @@ for key, dependency in tomllib.loads(manifest.read_text())["dependencies"].items
     package = tomllib.loads((copy / "Cargo.toml").read_text())["package"]
     version = package["version"] if isinstance(package["version"], str) else workspace_version
     if (name, version) not in locked:
-        if any(locked_name == name for locked_name, _ in locked):
-            failures.append(f"{name}: {dependency['path']} declares {version}, which is not the version Cargo.lock locks")
+        if name not in patched:
+            failures.append(f"{name}: {dependency['path']} resolves to {version}, which Cargo.lock does not lock from the engine")
         continue
     crate = f"{name}-{version}"
     vendored = vendored_copies(crate)

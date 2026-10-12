@@ -32,7 +32,7 @@ The pinned nixpkgs `fetch-cargo-vendor-util.py` copies the whole `Cargo.lock` in
 - R3. Every vendored engine crate is the copy that the engine's own marzano-language manifest names by path, whatever the filesystem's directory order. Pinned by `gritlint-vendor-engine-copies`.
 - R4. Every existing output and check still builds. `vendor/config.toml` still serves the `cargo deny` and mutants jobs.
 - R5. No workflow, action or timeout changes.
-- R6. The engine fetch does not run at evaluation time. CI evaluates before it restores the store cache.
+- R6. The engine fetch does not run at evaluation time; CI evaluates before it restores the store cache. Pinned by an evaluation assertion in `gritlint.nix`: the engine is the lock's only git source and is not percent-encoded, so crane always finds its `outputHashes` entry.
 
 ### Assumptions This Plan Breaks
 
@@ -78,5 +78,5 @@ The test-layer gate admits two tests. R1 is a deterministic regression pin for t
 
 ### U4. Vendor law checks
 
-- **Requirements:** R1, R3. **Files:** `nix/gritlint-vendor-checks.nix`, `nix/gritlint-vendor-engine-copies.py`, `nix/gritlint-checks.nix`, `flake.nix`.
-- **Verification:** both checks pass on this branch. Scratch fixtures that don't edit the source show each one failing: R1 fails when given main's `fetchCargoVendor` vendor, and R3 fails when given a vendor whose `tree-sitter-css` is the upstream submodule copy.
+- **Requirements:** R1, R3, R6. **Files:** `nix/gritlint-vendor-checks.nix`, `nix/gritlint-vendor-engine-copies.py`, `nix/gritlint-checks.nix`, `nix/gritlint.nix`, `flake.nix`.
+- **Verification:** both checks pass on this branch. Scratch fixtures that leave the source alone make each one fail. R1 fails on main's `fetchCargoVendor` vendor. R3 fails on a vendor whose `tree-sitter-css` is the upstream submodule copy, on one without `tree-sitter-php`'s `php/src`, on one without `marzano-core`, on a lock that pins `tree-sitter-json` at a version its manifest does not declare, and on a lock without `tree-sitter-css`. A scratch copy of the tree whose lock holds a second engine source fails evaluation.
