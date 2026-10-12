@@ -115,7 +115,7 @@ the packs are read once, at start.
 
 ## Biome plugins: `gritlint export biome`
 
-`gritlint export biome [--config PATH] [--rules PATH]... [ROOT]` lists every
+`gritlint export biome [--config PATH] [--rules PATH]... [--rule ID] [ROOT]` lists every
 enabled rule as `<ruleId> exportable` or `<ruleId> refused <reasonCode>: <next
 action>`. `--rule <ruleId>` prints that rule as a Biome GritQL plugin on stdout;
 write it to a `.grit` file and list it under `plugins` in `biome.json`. Which

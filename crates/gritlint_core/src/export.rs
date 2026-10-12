@@ -1,6 +1,7 @@
-use crate::domain::{ExportRefusal, ParsedRule, RuleKind};
+use crate::domain::{ExportRefusal, ParsedRule};
 use grit_util::{Ast as _, AstNode as _, Order, traverse};
 use marzano_language::grit_parser::MarzanoGritParser;
+use marzano_language::language::Tree;
 use marzano_util::node_with_source::NodeWithSource;
 use std::collections::BTreeSet;
 use std::fmt::Write as _;
@@ -29,24 +30,21 @@ pub fn biome(rule: &ParsedRule, all: &[&ParsedRule]) -> Result<String, ExportRef
     let refuse = |reason_code, detail: String, next_action| {
         ExportRefusal::new(rule.id().as_string(), reason_code, detail, next_action)
     };
-    if rule.kind() == RuleKind::MultiFile {
+    let root = parse(rule.body()).map_err(|error| {
+        refuse(
+            "export-construct",
+            format!("the rule body does not parse as GritQL: {error}."),
+            "report the rule to gritlint; `gritlint check` compiled it.",
+        )
+    })?;
+    let body = Body::read(&root.root_node());
+    if body.multifile {
         return Err(refuse(
             "export-multifile",
             "the rule is multifile, and a Biome plugin sees one file at a time.".to_owned(),
             "keep this rule in `gritlint check`; only a single-file rule exports.",
         ));
     }
-    let tree = MarzanoGritParser::new()
-        .and_then(|mut parser| parser.parse_file(rule.body(), None))
-        .map_err(|error| {
-            refuse(
-                "export-construct",
-                format!("the rule body does not parse as GritQL: {error}."),
-                "report the rule to gritlint; `gritlint check` compiled it.",
-            )
-        })?;
-    let root = tree.root_node();
-    let body = Body::read(&root);
     if let Some(language) = body.unsupported_language() {
         return Err(refuse(
             "export-language",
@@ -71,20 +69,25 @@ pub fn biome(rule: &ParsedRule, all: &[&ParsedRule]) -> Result<String, ExportRef
         ));
     }
     let scope = rule.id().scope();
-    let siblings: BTreeSet<&str> = all
+    let siblings: BTreeSet<String> = all
         .iter()
         .filter(|other| other.id() != rule.id() && other.id().scope() == scope)
-        .map(|other| other.name().as_str())
+        .flat_map(|other| {
+            let defined = parse(other.body())
+                .map(|tree| Body::read(&tree.root_node()).defined)
+                .unwrap_or_default();
+            std::iter::once(other.name().as_str().to_owned()).chain(defined)
+        })
         .collect();
     if let Some(called) = body
         .calls
         .difference(&body.defined)
-        .find(|name| siblings.contains(name.as_str()))
+        .find(|name| siblings.contains(*name))
     {
         return Err(refuse(
             "export-library",
             format!(
-                "the rule calls `{called}`, another rule of its pack, which a plugin cannot reach."
+                "the rule calls `{called}`, which another rule of its pack defines, and a plugin cannot reach it."
             ),
             "inline the called rule's pattern into this rule, or keep this rule in `gritlint check`.",
         ));
@@ -118,6 +121,7 @@ struct Body {
     flavors: Vec<String>,
     definitions: Vec<String>,
     pattern: String,
+    multifile: bool,
     foreign_function: bool,
     rewrite: bool,
     calls: BTreeSet<String>,
@@ -150,6 +154,7 @@ impl Body {
 
     fn visit(&mut self, node: &NodeWithSource<'_>) {
         match node.node.kind().as_ref() {
+            "files" => self.multifile = true,
             "foreignFunctionDefinition" => self.foreign_function = true,
             "rewrite" | "predicateRewrite" => self.rewrite = true,
             "nodeLike" | "predicateCall" => {
@@ -178,6 +183,12 @@ impl Body {
                 .trim()
         })
     }
+}
+
+fn parse(body: &str) -> Result<Tree, String> {
+    MarzanoGritParser::new()
+        .and_then(|mut parser| parser.parse_file(body, None))
+        .map_err(|error| error.to_string())
 }
 
 fn pattern_text(root: &NodeWithSource<'_>) -> String {

@@ -8,6 +8,7 @@ use lsp_types::notification::{
     DidChangeTextDocument, DidCloseTextDocument, DidOpenTextDocument, DidSaveTextDocument, Exit,
     LogMessage, Notification as _, PublishDiagnostics,
 };
+use lsp_types::request::{Request as _, Shutdown};
 use lsp_types::{
     Diagnostic, DiagnosticSeverity, DidChangeTextDocumentParams, DidCloseTextDocumentParams,
     DidOpenTextDocumentParams, InitializeParams, InitializeResult, LogMessageParams, MessageType,
@@ -16,9 +17,11 @@ use lsp_types::{
     TextDocumentSyncOptions, TextDocumentSyncSaveOptions, Uri,
 };
 use serde::de::DeserializeOwned;
+use std::cell::Cell;
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::PathBuf;
 
+const INVALID_REQUEST: i32 = -32600;
 const SERVER_NOT_INITIALIZED: i32 = -32002;
 const METHOD_NOT_FOUND: i32 = -32601;
 const REQUEST_FAILED: i32 = -32803;
@@ -76,6 +79,8 @@ pub fn serve(connection: &Connection, inputs: &WorkspaceInputs, packs: &[Pack]) 
                 root,
                 encoding,
                 documents: BTreeMap::new(),
+                edits: 0,
+                closed: Cell::new(false),
             };
             server.announce();
             server.run()
@@ -110,25 +115,33 @@ fn refuse(connection: &Connection, id: RequestId, error: &GritlintError) {
         connection,
         Response::new_err(id, REQUEST_FAILED, error.to_string()).into(),
     );
-    for message in &connection.receiver {
-        match message {
-            Message::Request(request) => send(
-                connection,
-                Response::new_err(
-                    request.id,
-                    SERVER_NOT_INITIALIZED,
-                    "gritlint refused to initialize".to_owned(),
-                )
-                .into(),
-            ),
-            Message::Notification(notification) if notification.method == Exit::METHOD => return,
+    until_exit(
+        connection,
+        SERVER_NOT_INITIALIZED,
+        "gritlint refused to initialize",
+    );
+}
+
+fn until_exit(connection: &Connection, code: i32, message: &str) -> bool {
+    for incoming in &connection.receiver {
+        match incoming {
+            Message::Request(request) => {
+                send(
+                    connection,
+                    Response::new_err(request.id, code, message.to_owned()).into(),
+                );
+            }
+            Message::Notification(notification) if notification.method == Exit::METHOD => {
+                return true;
+            }
             Message::Notification(_) | Message::Response(_) => {}
         }
     }
+    false
 }
 
-fn send(connection: &Connection, message: Message) {
-    let _ = connection.sender.send(message);
+fn send(connection: &Connection, message: Message) -> bool {
+    connection.sender.send(message).is_ok()
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -183,10 +196,10 @@ fn utf16_column(lines: &[&str], line: u32, byte: u32) -> u32 {
         .sum();
     u32::try_from(units).unwrap_or(u32::MAX)
 }
-
 struct Document {
     text: String,
     path: Option<RelPath>,
+    edited: u64,
 }
 
 struct Refusal {
@@ -209,6 +222,8 @@ struct Server<'a> {
     root: PathBuf,
     encoding: Encoding,
     documents: BTreeMap<Uri, Document>,
+    edits: u64,
+    closed: Cell<bool>,
 }
 
 impl Server<'_> {
@@ -227,6 +242,9 @@ impl Server<'_> {
             if changed {
                 self.publish();
             }
+            if self.closed.get() {
+                return Ending::Exit;
+            }
         }
         Ending::Exit
     }
@@ -240,22 +258,38 @@ impl Server<'_> {
     }
 
     fn request(&self, request: &Request) -> Handled {
-        match self.connection.handle_shutdown(request) {
-            Ok(true) => Handled::End(Ending::Shutdown),
-            Err(_) => Handled::End(Ending::Exit),
-            Ok(false) => {
-                send(
-                    self.connection,
-                    Response::new_err(
-                        request.id.clone(),
-                        METHOD_NOT_FOUND,
-                        format!("gritlint does not serve `{}`", request.method),
-                    )
-                    .into(),
-                );
-                Handled::Nothing
-            }
+        if request.method == Shutdown::METHOD {
+            self.send(Response::new_ok(request.id.clone(), ()).into());
+            let exited = until_exit(
+                self.connection,
+                INVALID_REQUEST,
+                "gritlint is shutting down",
+            );
+            return Handled::End(if exited {
+                Ending::Shutdown
+            } else {
+                Ending::Exit
+            });
         }
+        self.send(
+            Response::new_err(
+                request.id.clone(),
+                METHOD_NOT_FOUND,
+                format!("gritlint does not serve `{}`", request.method),
+            )
+            .into(),
+        );
+        Handled::Nothing
+    }
+
+    fn send(&self, message: Message) {
+        if !send(self.connection, message) {
+            self.closed.set(true);
+        }
+    }
+
+    fn notify<N: lsp_types::notification::Notification>(&self, params: N::Params) {
+        self.send(Notification::new(N::METHOD.to_owned(), params).into());
     }
 
     fn notification(&mut self, notification: Notification) -> Handled {
@@ -285,7 +319,9 @@ impl Server<'_> {
             Some(document) => document.path.clone(),
             None => self.relative(&uri),
         };
-        self.documents.insert(uri, Document { text, path });
+        self.edits += 1;
+        let edited = self.edits;
+        self.documents.insert(uri, Document { text, path, edited });
         Handled::Changed
     }
 
@@ -325,9 +361,10 @@ impl Server<'_> {
     }
 
     fn diagnose(&self) -> Result<BTreeMap<RelPath, Vec<Diagnostic>>, GritlintError> {
-        let open: BTreeMap<RelPath, &Document> = self
-            .documents
-            .values()
+        let mut by_edit: Vec<&Document> = self.documents.values().collect();
+        by_edit.sort_by_key(|document| document.edited);
+        let open: BTreeMap<RelPath, &Document> = by_edit
+            .into_iter()
             .filter_map(|document| document.path.clone().map(|path| (path, document)))
             .collect();
         let files = match self.workspace.select() {
@@ -464,37 +501,28 @@ impl Server<'_> {
     }
 
     fn send_diagnostics(&self, uri: Uri, diagnostics: Vec<Diagnostic>) {
-        notify::<PublishDiagnostics>(
-            self.connection,
-            PublishDiagnosticsParams {
-                uri,
-                diagnostics,
-                version: None,
-            },
-        );
+        self.notify::<PublishDiagnostics>(PublishDiagnosticsParams {
+            uri,
+            diagnostics,
+            version: None,
+        });
     }
 
     fn announce(&self) {
-        notify::<LogMessage>(
-            self.connection,
-            LogMessageParams {
-                typ: MessageType::INFO,
-                message: format!(
-                    "gritlint: serving {}; documents outside it get no diagnostics",
-                    self.root.display()
-                ),
-            },
-        );
+        self.notify::<LogMessage>(LogMessageParams {
+            typ: MessageType::INFO,
+            message: format!(
+                "gritlint: serving {}; documents outside it get no diagnostics",
+                self.root.display()
+            ),
+        });
     }
 
     fn log(&self, error: &GritlintError) {
-        notify::<LogMessage>(
-            self.connection,
-            LogMessageParams {
-                typ: MessageType::ERROR,
-                message: format!("gritlint: {error}"),
-            },
-        );
+        self.notify::<LogMessage>(LogMessageParams {
+            typ: MessageType::ERROR,
+            message: format!("gritlint: {error}"),
+        });
     }
 }
 
@@ -534,11 +562,4 @@ fn diagnostic(range: Range, code: &str, message: String) -> Diagnostic {
 
 fn params<P: DeserializeOwned>(notification: Notification) -> Option<P> {
     serde_json::from_value(notification.params).ok()
-}
-
-fn notify<N: lsp_types::notification::Notification>(connection: &Connection, params: N::Params) {
-    send(
-        connection,
-        Notification::new(N::METHOD.to_owned(), params).into(),
-    );
 }

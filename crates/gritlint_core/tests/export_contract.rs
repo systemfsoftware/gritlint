@@ -84,6 +84,7 @@ fn each_exportable_rule_renders_its_committed_plugin() {
         "license_value",
         "no-console-log",
         "no-important",
+        "own-helper",
     ] {
         assert_eq!(
             exported(&rules, &format!("export-fixtures/{name}")),
@@ -100,11 +101,13 @@ fn each_refused_rule_reports_its_own_reason_code() {
 
     for (name, code) in [
         ("multifile-join", "export-multifile"),
+        ("commented-multifile", "export-multifile"),
         ("yaml-name", "export-language"),
         ("flow-console", "export-language"),
         ("js-function", "export-construct"),
         ("rewrite-license", "export-rewrite"),
         ("calls-sibling", "export-library"),
+        ("calls-sibling-helper", "export-library"),
         ("nope", "export-unknown-rule"),
     ] {
         let refused = exported(&rules, &format!("export-fixtures/{name}"));
@@ -119,7 +122,11 @@ fn a_refusal_names_the_rule_its_reason_and_a_next_action() {
 
     assert_eq!(
         exported(&rules, "export-fixtures/calls-sibling").map_err(|(_, text)| text),
-        Err("export-fixtures/calls-sibling: export-library: the rule calls `license_value`, another rule of its pack, which a plugin cannot reach. Next action: inline the called rule's pattern into this rule, or keep this rule in `gritlint check`.".to_owned())
+        Err("export-fixtures/calls-sibling: export-library: the rule calls `license_value`, which another rule of its pack defines, and a plugin cannot reach it. Next action: inline the called rule's pattern into this rule, or keep this rule in `gritlint check`.".to_owned())
+    );
+    assert_eq!(
+        exported(&rules, "export-fixtures/calls-sibling-helper").map_err(|(_, text)| text),
+        Err("export-fixtures/calls-sibling-helper: export-library: the rule calls `unlicensed_text`, which another rule of its pack defines, and a plugin cannot reach it. Next action: inline the called rule's pattern into this rule, or keep this rule in `gritlint check`.".to_owned())
     );
     assert_eq!(
         exported(&rules, "export-fixtures/nope").map_err(|(_, text)| text),

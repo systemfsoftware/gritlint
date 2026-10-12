@@ -1,4 +1,6 @@
 export-fixtures/calls-sibling refused export-library: inline the called rule's pattern into this rule, or keep this rule in `gritlint check`.
+export-fixtures/calls-sibling-helper refused export-library: inline the called rule's pattern into this rule, or keep this rule in `gritlint check`.
+export-fixtures/commented-multifile refused export-multifile: keep this rule in `gritlint check`; only a single-file rule exports.
 export-fixtures/flow-console refused export-language: keep this rule in `gritlint check`, or write it for a language Biome plugins support.
 export-fixtures/forbidden-license exportable
 export-fixtures/js-function refused export-construct: rewrite the function as a GritQL pattern or predicate, or keep this rule in `gritlint check`.
@@ -6,5 +8,6 @@ export-fixtures/license_value exportable
 export-fixtures/multifile-join refused export-multifile: keep this rule in `gritlint check`; only a single-file rule exports.
 export-fixtures/no-console-log exportable
 export-fixtures/no-important exportable
+export-fixtures/own-helper exportable
 export-fixtures/rewrite-license refused export-rewrite: remove the rewrite to export a rule that only reports.
 export-fixtures/yaml-name refused export-language: keep this rule in `gritlint check`, or write it for a language Biome plugins support.

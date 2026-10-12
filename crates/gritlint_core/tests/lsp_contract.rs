@@ -99,6 +99,11 @@ impl Session {
         response
     }
 
+    fn request(&self, id: i32, method: &str, params: Value) -> Result<Value, ResponseError> {
+        self.send(Request::new(RequestId::from(id), method.to_owned(), params).into());
+        self.response()
+    }
+
     fn response(&self) -> Result<Value, ResponseError> {
         loop {
             match self.client.receiver.recv_timeout(WAIT).expect("a reply") {
@@ -135,6 +140,15 @@ impl Session {
             latest.insert(published.uri.as_str().to_owned(), published.diagnostics);
         }
         latest
+    }
+
+    fn round(&self, documents: usize) -> BTreeMap<String, Vec<Diagnostic>> {
+        (0..documents)
+            .map(|_| {
+                let published = self.published();
+                (published.uri.as_str().to_owned(), published.diagnostics)
+            })
+            .collect()
     }
 
     fn open(&self, path: &Path, text: &str) {
@@ -291,23 +305,34 @@ fn saving_publishes_the_buffer_and_documents_outside_the_root_get_an_empty_set()
 }
 
 #[test]
-fn two_uris_for_one_file_both_get_its_diagnostics() {
+fn two_uris_for_one_file_follow_whichever_buffer_changed_last() {
     let (session, document) = single_session();
     let links = tempfile::tempdir().expect("temp dir");
     let link = links.path().join("single");
     std::os::unix::fs::symlink(fixture("lsp/single"), &link).expect("symlink the root");
     let alias = link.join("package.json");
     let bad = "{\n  \"license\": \"UNLICENSED\"\n}\n";
+    let good = "{\n  \"license\": \"MIT\"\n}\n";
+    let counts = |round: BTreeMap<String, Vec<Diagnostic>>| -> Vec<(String, usize)> {
+        round
+            .into_iter()
+            .map(|(uri, diagnostics)| (uri, diagnostics.len()))
+            .collect()
+    };
+    let expect = |document_count: usize, alias_count: usize| {
+        let mut expected = vec![(uri(&document), document_count), (uri(&alias), alias_count)];
+        expected.sort();
+        expected
+    };
 
     session.open(&document, bad);
-    session.open(&alias, bad);
-    let mut published = session.published_for(&[&document, &alias]);
-    while published.values().any(Vec::is_empty) {
-        let next = session.published();
-        published.insert(next.uri.as_str().to_owned(), next.diagnostics);
-    }
-    let counts: Vec<usize> = published.values().map(Vec::len).collect();
-    assert_eq!(counts, vec![1, 1]);
+    assert_eq!(summary(&session.published().diagnostics).len(), 1);
+    session.open(&alias, good);
+    assert_eq!(counts(session.round(2)), expect(0, 0));
+    session.change(&document, bad);
+    assert_eq!(counts(session.round(2)), expect(1, 1));
+    session.change(&alias, good);
+    assert_eq!(counts(session.round(2)), expect(0, 0));
 
     assert_eq!(session.shutdown(), Ending::Shutdown);
 }
@@ -394,6 +419,13 @@ fn a_root_check_refuses_fails_initialize_and_exits_2() {
             fixture("lsp/empty").join("gritlint.json").display()
         )
     );
+    assert_eq!(
+        session
+            .request(3, "shutdown", Value::Null)
+            .err()
+            .map(|error| error.code),
+        Some(-32002)
+    );
     assert_eq!(session.exit(), Ending::Refused);
     assert_eq!(Ending::Refused.exit_code(), 2);
 
@@ -421,6 +453,87 @@ fn exit_without_shutdown_ends_with_exit_1() {
     assert_eq!(session.exit(), Ending::Exit);
     assert_eq!(Ending::Exit.exit_code(), 1);
     assert_eq!(Ending::Shutdown.exit_code(), 0);
+}
+
+#[test]
+fn a_request_gritlint_does_not_serve_is_answered_method_not_found() {
+    let (session, _) = single_session();
+
+    let error = session
+        .request(3, "textDocument/hover", json!({}))
+        .expect_err("hover is not served");
+    assert_eq!(error.code, -32601);
+    assert_eq!(
+        error.message,
+        "gritlint does not serve `textDocument/hover`"
+    );
+
+    assert_eq!(session.shutdown(), Ending::Shutdown);
+}
+
+#[test]
+fn exit_after_shutdown_ends_with_exit_0_whatever_arrives_between() {
+    let (session, document) = single_session();
+
+    assert_eq!(
+        session
+            .request(2, "shutdown", Value::Null)
+            .err()
+            .map(|error| error.message),
+        None
+    );
+    session.change(&document, "{}\n");
+    let error = session
+        .request(3, "textDocument/hover", json!({}))
+        .expect_err("a request after shutdown is refused");
+    assert_eq!(error.code, -32600);
+
+    assert_eq!(session.exit(), Ending::Shutdown);
+}
+
+#[test]
+fn shutdown_then_the_end_of_input_ends_with_exit_1() {
+    let (session, _) = single_session();
+
+    assert_eq!(
+        session
+            .request(2, "shutdown", Value::Null)
+            .err()
+            .map(|error| error.message),
+        None
+    );
+    let Session { client, server } = session;
+    drop(client);
+
+    assert_eq!(ended(server), Ending::Exit);
+}
+
+#[test]
+fn a_client_that_stops_reading_ends_the_server() {
+    let (session, document) = single_session();
+    let Session { client, server } = session;
+    let Connection { sender, receiver } = client;
+    drop(receiver);
+
+    sender
+        .send(
+            Notification::new(
+                "textDocument/didOpen".to_owned(),
+                json!({ "textDocument": { "uri": uri(&document), "languageId": "json", "version": 1, "text": "{}\n" } }),
+            )
+            .into(),
+        )
+        .expect("the server is listening");
+
+    assert_eq!(ended(server), Ending::Exit);
+}
+
+fn ended(server: JoinHandle<Ending>) -> Ending {
+    let (sender, receiver) = std::sync::mpsc::channel();
+    thread::spawn(move || sender.send(server.join().expect("the server thread ends")));
+    receiver
+        .recv_timeout(WAIT)
+        .expect("the server ends within the wait")
 }
 
 fn refusal_session() -> (Session, PathBuf, PathBuf) {
