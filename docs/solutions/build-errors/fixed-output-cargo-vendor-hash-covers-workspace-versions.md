@@ -33,13 +33,14 @@ A local build hides this. A fixed-output path is named by its declared hash, so 
 
 ## Solution
 
-Vendor with crane's `vendorCargoDeps`, which has no fixed-output hash. It keeps only `name`, `version`, `source` and `checksum` of each lock entry and drops entries with no `source`, which are the workspace members. Registry crates are fetched by their lock checksums, and git crates by `builtins.fetchGit` at the locked rev:
+Vendor with crane's `vendorCargoDeps`. It keeps only `name`, `version`, `source` and `checksum` of each lock entry and drops entries with no `source`, which are the workspace members. Registry crates are fetched by their lock checksums. The engine is one fixed-output fetch keyed by its lock source string, so its hash moves only when the engine is re-pinned:
 
 ```nix
-cargoDeps = craneLib.vendorCargoDeps {
-  cargoLock = ../Cargo.lock;
+vendorFor = lock: craneLib.vendorCargoDeps {
+  cargoLockParsed = lock;
+  outputHashes.${engineSourceId} = engineHash;   # "git+<repo>?rev=R#R"
   overrideVendorGitCheckout = packages: checkout:
-    if lib.any (p: lib.hasPrefix "git+${engineRepo}?" p.source) packages then
+    if lib.any (p: p.source == engineSourceId) packages then
       checkout.overrideAttrs (old: {
         preInstall = (old.preInstall or "") + ''
           rm -r resources/language-submodules
@@ -49,6 +50,8 @@ cargoDeps = craneLib.vendorCargoDeps {
     else checkout;
 };
 ```
+
+A fully hashless vendor was tried first and dropped. Without `outputHashes`, crane fetches the engine with `builtins.fetchGit` (submodules included, all refs) at evaluation time. In CI, evaluation runs before the store cache is restored, so the step that evaluates every output went from about 50 s to 618 s (x86_64) and 625 s (aarch64), almost all of it spent cloning submodules. With the hash, crane uses `fetchgit`, which runs at build time, takes about 60 s on a cold store, and is served from the store cache after that.
 
 The GritQL checkout needed two changes before crane could vendor it:
 
@@ -62,14 +65,15 @@ The GritQL checkout needed two changes before crane could vendor it:
 A fixed-output hash pins the bytes of its output, so it holds only while every input that reaches the output is one the hash is meant to pin. The bot rewrites the workspace's own versions on every release. Any vendor whose output contains those versions, such as a copied lock, will break on the next release.
 
 - wrong: a fixed-output vendor whose output holds a copy of `Cargo.lock`, so its hash depends on the workspace members.
-- right: a vendor built only from third-party entries (name, version, source, checksum), each fetched by its own content address: the lock checksum for a registry crate, the locked rev for a git crate.
+- right: a vendor built only from third-party entries (name, version, source, checksum), each fetched by its own content address: the lock checksum for a registry crate, and for the git engine a hash keyed by its locked rev.
 
 ## Prevention
 
-- When a vendor is a fixed-output derivation, check that its output depends only on third-party lock entries. Gate: make a scratch commit with the real bot command (`nix develop --command <release-tools>/bin/version-management bump` over a patch changeset), then check that `gritlint-unwrapped.vendor.drvPath` evaluates to the same path before and after it. Use a fresh store (`nix build --store /tmp/<dir> .#packages.x86_64-linux.gritlint-binaries`) so that an old output already in the store can't mask a failure.
-- When the engine is re-pinned, read the cargo-git derivation's log (`nix log`, on the `cargo-git-…gritql…` derivation among the vendor's requisites). A `skipping duplicate package` line for a locked crate means a new duplicate has appeared. The engine's two `xtask` crates are the expected exception: no lock entry names them.
+- Pin the law, not the instance. The flake check `gritlint-vendor-ignores-workspace-versions` gives `vendorFor` the lock with every workspace member's version moved and fails evaluation if the vendor's drvPath changes. Run against main's `fetchCargoVendor` vendor, the same check fails.
+- Pin the grammar choice. `gritlint-vendor-engine-copies` checks that each locked crate marzano-language's manifest takes by path is vendored once, with every file byte-identical to that copy at the pinned rev. A vendor that takes `tree-sitter-css` from the upstream submodule copy fails it on the grammar's generated parser and its `grammar.js`.
+- A fixed-output path is named by its declared hash, so a store that already holds the old output hides a stale hash. Prove a vendor change in a fresh store (`nix build --store /tmp/<dir> …`), not in a developer store.
 
 ## Related Issues
 
 - [fetch-cargo-vendor-given-whole-source-rebuilds-crane-deps.md](../performance-issues/fetch-cargo-vendor-given-whole-source-rebuilds-crane-deps.md): the lock-only vendor source that this replaces
-- `docs/plans/2026-10-12-1112-fix-vendor-lockfile-independent-plan.md`
+- `docs/plans/2026-10-12-1740-fix-vendor-workspace-version-independent-plan.md`
