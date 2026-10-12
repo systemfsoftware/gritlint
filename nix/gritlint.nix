@@ -59,17 +59,20 @@ let
 
   cargoLock = lib.importTOML ../Cargo.lock;
 
-  engineSourceIds = lib.unique (
-    builtins.filter (lib.hasPrefix "git+${engineRepo}?") (map (p: p.source or "") cargoLock.package)
-  );
+  gitSourceIds = lib.unique (builtins.filter (lib.hasPrefix "git+") (map (p: p.source or "") cargoLock.package));
 
-  # The lock's source string, `git+<repo>?rev=<rev>#<rev>`, which is also the
-  # key crane looks the engine's hash up by.
+  # The lock's source string, `git+<repo>?rev=<rev>#<rev>`, is the key crane
+  # looks the engine's hash up by. crane percent-decodes the lock's sources
+  # before the lookup, and a git source with no hash makes it fetch at
+  # evaluation time, so the engine must be the lock's only git source, written
+  # without escapes.
   engineSourceId =
-    assert lib.assertMsg (builtins.length engineSourceIds == 1)
-      "nix/gritlint.nix: Cargo.lock must pin exactly one biomejs/gritql rev, found ${toString (builtins.length engineSourceIds)}";
-    builtins.head engineSourceIds;
-
+    assert lib.assertMsg (
+      builtins.length gitSourceIds == 1 && lib.hasPrefix "git+${engineRepo}?" (builtins.head gitSourceIds)
+    ) "nix/gritlint.nix: the engine at one biomejs/gritql rev must be Cargo.lock's only git source, found ${builtins.toJSON gitSourceIds}";
+    assert lib.assertMsg (!lib.hasInfix "%" (builtins.head gitSourceIds))
+      "nix/gritlint.nix: the engine's lock source is percent-encoded, so crane would not find its hash under it";
+    builtins.head gitSourceIds;
   engineRev = lib.last (lib.splitString "#" engineSourceId);
 
   engineHash = "sha256-+kYe4+DOqjbB6mlRkz6u86dp1/B9fooA+l/oR2dMBZo=";

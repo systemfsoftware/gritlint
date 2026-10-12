@@ -23,10 +23,12 @@
       "gritlint-vendor-ignores-workspace-versions: the vendor's derivation changes with the workspace members' versions, so the next version PR breaks it";
     runCommand "gritlint-vendor-ignores-workspace-versions" { } "touch $out";
 
-  # Each locked crate the engine's marzano-language manifest takes by path is
-  # vendored once, and every file of it equals the file at that path at the
-  # pinned rev. The checkout also holds upstream grammars under the same names
-  # and versions; vendoring one of those instead still builds.
+  # Every locked git crate is vendored exactly once. For each one that the
+  # engine's marzano-language manifest takes by path, every vendored file equals
+  # the file at that path at the pinned rev, and every file its `include` names
+  # there is vendored. The checkout also holds upstream grammars under the same
+  # names and versions, and cargo drops a directory with its own manifest;
+  # either mistake still builds.
   engineCopies =
     {
       vendor,

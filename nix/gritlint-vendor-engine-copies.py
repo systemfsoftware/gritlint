@@ -1,4 +1,5 @@
 import filecmp
+import fnmatch
 import json
 import sys
 import tomllib
@@ -6,39 +7,67 @@ from pathlib import Path
 
 engine, vendor, lock_json = (Path(arg) for arg in sys.argv[1:4])
 manifest = engine / "crates" / "language" / "Cargo.toml"
-locked = {
-    package["name"]: package["version"]
-    for package in json.loads(lock_json.read_text())["package"]
-    if package.get("source", "").startswith("git+")
-}
+packages = json.loads(lock_json.read_text())["package"]
+locked = {(package["name"], package["version"]) for package in packages if package.get("source", "").startswith("git+")}
+patched = {package["name"] for package in packages if "source" not in package}
+workspace_version = tomllib.loads((engine / "Cargo.toml").read_text())["workspace"]["package"]["version"]
+not_compared = {Path("Cargo.toml"), Path(".cargo-checksum.json")}
 sources = [source for source in vendor.iterdir() if source.is_dir()]
 
-failures = []
+
+def vendored_copies(crate):
+    return [source / crate for source in sources if (source / crate).is_dir()]
+
+
+def files_under(root):
+    return {path.relative_to(root) for path in root.rglob("*") if path.is_file()}
+
+
+def included(file, patterns):
+    for pattern in (pattern.strip("/") for pattern in patterns):
+        if "/" in pattern:
+            prefixes = ("/".join(file.parts[: depth + 1]) for depth in range(len(file.parts)))
+            if any(fnmatch.fnmatchcase(prefix, pattern) for prefix in prefixes):
+                return True
+        elif any(fnmatch.fnmatchcase(part, pattern) for part in file.parts):
+            return True
+    return False
+
+
+failures = [
+    f"{name}-{version}: expected one vendored copy, found {len(vendored_copies(f'{name}-{version}'))}"
+    for name, version in sorted(locked)
+    if len(vendored_copies(f"{name}-{version}")) != 1
+]
 checked = 0
 for key, dependency in tomllib.loads(manifest.read_text())["dependencies"].items():
     if not isinstance(dependency, dict) or "path" not in dependency:
         continue
     name = dependency.get("package", key)
-    if name not in locked:
-        continue
     copy = manifest.parent / dependency["path"]
-    crate = f"{name}-{locked[name]}"
-    vendored = [source / crate for source in sources if (source / crate).is_dir()]
-    if len(vendored) != 1:
-        failures.append(f"{crate}: expected one vendored copy, found {len(vendored)}")
+    package = tomllib.loads((copy / "Cargo.toml").read_text())["package"]
+    version = package["version"] if isinstance(package["version"], str) else workspace_version
+    if (name, version) not in locked:
+        if name not in patched:
+            failures.append(f"{name}: {dependency['path']} resolves to {version}, which Cargo.lock does not lock from the engine")
         continue
-    files = [
-        path.relative_to(vendored[0])
-        for path in vendored[0].rglob("*")
-        if path.is_file() and path.relative_to(vendored[0]).as_posix() not in ("Cargo.toml", ".cargo-checksum.json")
-    ]
+    crate = f"{name}-{version}"
+    vendored = vendored_copies(crate)
+    if len(vendored) != 1:
+        continue
+    files = files_under(vendored[0]) - not_compared
     if not files:
         failures.append(f"{crate}: the vendored copy has no files to compare")
-    for file in files:
+    for file in sorted(files):
         if not (copy / file).is_file():
             failures.append(f"{crate}: {file} is not in {dependency['path']} in the engine at the pinned rev")
         elif not filecmp.cmp(vendored[0] / file, copy / file, shallow=False):
             failures.append(f"{crate}: {file} differs from {dependency['path']} in the engine at the pinned rev")
+    patterns = package.get("include")
+    if patterns:
+        for file in sorted(files_under(copy) - files - not_compared):
+            if included(file, patterns):
+                failures.append(f"{crate}: {file} from {dependency['path']} is in its include list but not vendored")
     checked += 1
 
 if checked == 0:
