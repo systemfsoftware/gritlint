@@ -73,6 +73,7 @@ let
     assert lib.assertMsg (!lib.hasInfix "%" (builtins.head gitSourceIds))
       "nix/gritlint.nix: the engine's lock source is percent-encoded, so crane would not find its hash under it";
     builtins.head gitSourceIds;
+
   engineRev = lib.last (lib.splitString "#" engineSourceId);
 
   engineHash = "sha256-+kYe4+DOqjbB6mlRkz6u86dp1/B9fooA+l/oR2dMBZo=";
