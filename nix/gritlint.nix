@@ -36,8 +36,7 @@
 # The vendor carries no fixed-output hash: crane fetches each registry crate
 # by its Cargo.lock checksum and the engine with `builtins.fetchGit` at the
 # locked rev, and reads nothing else from the lock. A version bump rewrites
-# only the workspace members' lock entries, so it leaves the vendor and the
-# dependency derivations as they were.
+# only the workspace members' lock entries, so it leaves the vendor as it was.
 #
 # The package links its dependencies with fat LTO, so it builds against
 # release-profile dependency artifacts; clippy, the tests and `cargo tree`
