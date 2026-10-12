@@ -1,0 +1,17 @@
+name: Changeset Check
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  check:
+    name: changeset · shared tooling
+    uses: systemfsoftware/pnpm-release-management/.github/workflows/changeset-check.yml@b9b4a1d48cc16241b33f9afd8ab99b82b05ce04f
+    permissions:
+      contents: read
+      pull-requests: read

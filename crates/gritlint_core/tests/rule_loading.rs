@@ -498,6 +498,43 @@ fn a_heading_inside_an_example_block_stays_in_the_message() {
 }
 
 #[test]
+fn only_the_first_heading_leaves_the_message() {
+    let temp = tempfile::tempdir().expect("temp dir");
+    let body = r#"---
+reasonCode: test-reason
+nextAction: Fix it.
+---
+
+# Title
+
+Prose under the title.
+
+# Later heading
+
+Prose under the later heading.
+
+```grit
+language json
+`"console": $_`
+```
+"#;
+    let dir = make_pack(temp.path(), "pack-one", &[], &[("two-headings.md", body)]);
+
+    let rules = decode::load_rules(
+        &[pack_of(&dir)],
+        &enabled("pack-one", &[]),
+        Vec::new(),
+        Path::new("gritlint.json"),
+    )
+    .expect("load the pack");
+
+    assert_eq!(
+        rules.first().rule().message(),
+        "Prose under the title.\n\n# Later heading\n\nProse under the later heading."
+    );
+}
+
+#[test]
 fn a_markdown_rule_with_two_grit_blocks_is_refused() {
     let temp = tempfile::tempdir().expect("temp dir");
     let body = format!(
