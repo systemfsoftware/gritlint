@@ -45,7 +45,7 @@ A derived `Debug` describes a whole value, so its cost grows with the value's fi
 
   ```sh
   V=$(nix build --no-link --print-out-paths .#packages.x86_64-linux.gritlint-unwrapped.vendor)
-  names=$(grep -rh -A1 'fn language_name' "$V"/source-git-0/marzano-language-*/src | grep -o '"[^"]*"')
+  names=$(grep -rh -A1 'fn language_name' "$V"/*/marzano-language-*/src | grep -o '"[^"]*"')
   test -n "$names" && test -z "$(printf '%s\n' "$names" | sort | uniq -d)"
   ```
 

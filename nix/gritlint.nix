@@ -1,27 +1,42 @@
 # gritlint, compiled from Cargo.lock with crane.
 #
-# Four facts about the pinned engine drive this file.
+# Five facts about the pinned engine drive this file.
 #
 # 1. Cargo.lock is the only place the biomejs/gritql rev appears; it is read
 #    out of the lock here for the engine checkout below.
-# 2. The gritql checkout holds two crates with one name in several places
-#    (`tree-sitter-c-sharp` 0.23.1 and 0.20.0, `tree-sitter-php`), and three
-#    locked crates live only in its submodules. `importCargoLock` takes the
-#    first `find` hit by name, so its vendor tree differed between machines
-#    under one derivation hash. `fetchCargoVendor` picks deterministically,
-#    and its fixed-output hash fails loudly if the vendor tree ever changes,
-#    so it vendors here rather than crane's own git vendoring. A re-pin
-#    updates `cargoDeps.hash`.
-# 3. marzano-language reads `include_str!("../../../resources/node-types/…")`
-#    from outside its crate, which from `<vendor>/source-git-0/<crate>/src`
-#    is the vendor root. `vendor` copies those files there from a checkout
-#    of the pinned rev.
-# 4. The root Cargo.toml patches the engine's `tree-sitter-typescript` with
+# 2. Sixteen grammar crates appear twice in the gritql checkout under one
+#    name and version: the engine's manifests build the copies in
+#    `resources/language-metavariables`, and the git submodules in
+#    `resources/language-submodules` hold the upstream ones. crane vendors a
+#    git checkout by keeping the first `find` hit per name and version, an
+#    order that differs between filesystems, so `cargoDeps` deletes the
+#    upstream copies before crane scans the checkout. The two `xtask` crates
+#    under `vendor/` also share a name and version, but they are workspace
+#    members there and no lock entry names them, so they stay and are never
+#    linked. Three locked crates live only in the engine's submodules, which
+#    crane fetches.
+# 3. crane copies a git crate's files as `cargo package --list` names them,
+#    and cargo leaves out any directory holding its own Cargo.toml. The
+#    grammars `tree-sitter-php` and `tree-sitter-md` keep their sources in
+#    such directories (`php/src`, `tree-sitter-markdown/src`), so `cargoDeps`
+#    deletes the nested manifests under `resources/language-metavariables`;
+#    no lock entry names them.
+# 4. marzano-language reads `include_str!("../../../resources/node-types/…")`
+#    from outside its crate, which from `<vendor>/<source>/<crate>/src` is the
+#    vendor root. crane links each crate from its own store path, so `vendor`
+#    copies the engine's source directory and puts those files beside it,
+#    from a checkout of the pinned rev.
+# 5. The root Cargo.toml patches the engine's `tree-sitter-typescript` with
 #    `vendor/tree-sitter-typescript`, a path crate. crane's dummy source stubs
 #    every crate's sources, which leaves marzano-language without the
 #    grammar's functions in the dependency builds, so `common` copies the real
 #    crate back over the stub. It comes from its own store path, so a
 #    workspace edit does not rebuild the dependencies.
+#
+# The vendor carries no fixed-output hash: crane fetches each registry crate
+# by its Cargo.lock checksum and the engine with `builtins.fetchGit` at the
+# locked rev, and reads nothing else from the lock. A version bump rewrites
+# only the workspace members' lock entries, so it leaves the vendor as it was.
 #
 # The package links its dependencies with fat LTO, so it builds against
 # release-profile dependency artifacts; clippy, the tests and `cargo tree`
@@ -29,7 +44,6 @@
 {
   lib,
   craneLib,
-  rustPlatform,
   runCommand,
   version,
 }:
@@ -77,22 +91,35 @@ let
     ];
   };
 
-  cargoDeps = rustPlatform.fetchCargoVendor {
-    src = lib.fileset.toSource {
-      root = ../.;
-      fileset = ../Cargo.lock;
-    };
-    hash = "sha256-Twr21CrBedbrmNkFvzmEUzRimOTcXubIIg1TKi4X6DM=";
+  cargoDeps = craneLib.vendorCargoDeps {
+    cargoLock = ../Cargo.lock;
+    overrideVendorGitCheckout =
+      packages: checkout:
+      if lib.any (p: lib.hasPrefix "git+${engineRepo}?" p.source) packages then
+        checkout.overrideAttrs (old: {
+          preInstall = (old.preInstall or "") + ''
+            rm -r resources/language-submodules
+            find resources/language-metavariables -mindepth 3 -name Cargo.toml -delete
+          '';
+        })
+      else
+        checkout;
   };
 
-  # The registry crates are linked as they are; only the git crates need the
-  # engine's resources beside them, so only they are copied.
+  # The registry crates are linked as they are; only the engine's crates need
+  # its resources beside them, so only their source directory is copied.
   vendor = runCommand "gritlint-vendor" { } ''
     mkdir -p $out/resources
-    ln -s ${cargoDeps}/source-registry-0 $out/source-registry-0
-    cp -r ${cargoDeps}/source-git-0 $out/source-git-0
+    for source in ${cargoDeps}/*/; do
+      source=''${source%/}
+      if [ -n "$(find "$source/" -maxdepth 1 -name 'marzano-language-*')" ]; then
+        cp -rL "$source" "$out/"
+      else
+        ln -s "$source" "$out/"
+      fi
+    done
     cp -r ${engineSource}/resources/node-types $out/resources/node-types
-    substitute ${cargoDeps}/.cargo/config.toml $out/config.toml --subst-var-by vendor $out
+    substitute ${cargoDeps}/config.toml $out/config.toml --replace-fail ${cargoDeps} $out
   '';
 
   grammar = lib.fileset.toSource {

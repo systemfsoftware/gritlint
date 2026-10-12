@@ -510,7 +510,7 @@ dependencies = [
 
 [[package]]
 name = "gritlint"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "clap",
  "gritlint_core",
@@ -522,14 +522,14 @@ dependencies = [
 
 [[package]]
 name = "gritlint-e2e"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "serde_json",
 ]
 
 [[package]]
 name = "gritlint_bench"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "gritlint_core",
  "rayon",
@@ -538,7 +538,7 @@ dependencies = [
 
 [[package]]
 name = "gritlint_core"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "globset",
  "grit-util",
