@@ -94,6 +94,51 @@ stderr carries one line with a next action, the same in every format:
 | `github` | one `::error` workflow command per finding, with `file`, the range when present, and the rule and reason as `title`; run it from the repository root, since GitHub resolves `file` against it |
 | `github-summary` | Markdown for `$GITHUB_STEP_SUMMARY`: the verdict, at most 100 findings and the per-rule counts |
 
+## Editors: `gritlint lsp`
+
+`gritlint lsp [--config PATH] [--rules PATH]... [ROOT]` speaks the Language
+Server Protocol over stdio and publishes one error diagnostic per finding in each
+open document, from its unsaved text, multifile rules included. The diagnostic's
+code is the reason code and its message is the finding's message and next
+action; positions are UTF-8 when the editor offers it, else UTF-16.
+
+It loads exactly what `gritlint check` loads with the same arguments, from ROOT
+(default `.`), and never reads the editor's workspace folders, so start it at the
+workspace root: a document outside ROOT, or one `check` would not select, gets no
+diagnostics. Under `packages.<system>.gritlint` only the working directory is
+readable. A config `check` refuses fails `initialize` with the same text, and
+the server exits 2 after `exit`; `shutdown` then `exit` exits 0, `exit` alone 1.
+A file the engine cannot scan does not stop the server: it gets one diagnostic
+with the target reason code, each open document whose multifile batch read it
+gets one naming it, and everything else is still reported. `gritlint.json` and
+the packs are read once, at start.
+
+## Biome plugins: `gritlint export biome`
+
+`gritlint export biome [--config PATH] [--rules PATH]... [ROOT]` lists every
+enabled rule as `<ruleId> exportable` or `<ruleId> refused <reasonCode>: <next
+action>`. `--rule <ruleId>` prints that rule as a Biome GritQL plugin on stdout;
+write it to a `.grit` file and list it under `plugins` in `biome.json`. Which
+files it runs on is Biome's configuration, not gritlint's `ignore`.
+
+Only a single-file rule in `css`, `json` or `js` (no flavor, `typescript` or
+`jsx`) exports. A refusal exits 2 with one stderr line,
+`ERROR gritlint: <ruleId>: <reasonCode>: … Next action: …`:
+
+| Reason code | The rule |
+| --- | --- |
+| `export-unknown-rule` | no enabled rule has the id |
+| `export-multifile` | is multifile; a Biome plugin sees one file at a time |
+| `export-language` | targets another language or flavor |
+| `export-construct` | defines a JavaScript function |
+| `export-rewrite` | rewrites with `=>` |
+| `export-library` | calls another rule of its pack |
+
+Every bundled rule is multifile, so all of them list as `export-multifile`. A
+plugin targets Biome 2.4.0 or later. It is verified in gritlint's own engine, not
+in Biome: Biome parses snippets with its own grammars, so check a plugin's
+findings in Biome before relying on it.
+
 ## Releasing
 
 One version applies to the launcher and the Rust crates, and the release tooling

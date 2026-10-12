@@ -8,7 +8,7 @@ use crate::engine::{DiagnosticKind, EngineDiagnostic, EngineMatch, EngineOutcome
 use crate::error::GritlintError;
 use rayon::prelude::*;
 use regex::Regex;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 use std::sync::LazyLock;
 
@@ -82,6 +82,78 @@ pub fn partition_multifile(rule: &ParsedRule, batch: &[SelectedFile]) -> Vec<Dir
         )
         .into_iter()
         .map(|(directory, files)| DirectoryBatch { directory, files })
+        .collect()
+}
+
+#[must_use]
+pub fn restrict(plan: ScanPlan, open: &BTreeSet<RelPath>) -> ScanPlan {
+    narrow(
+        plan,
+        |path| open.contains(path),
+        |files| files.iter().any(|file| open.contains(file.path())),
+    )
+}
+
+#[must_use]
+pub fn without(plan: ScanPlan, refused: &RelPath) -> ScanPlan {
+    narrow(
+        plan,
+        |path| path != refused,
+        |files| files.iter().all(|file| file.path() != refused),
+    )
+}
+
+fn narrow(
+    plan: ScanPlan,
+    keep_file: impl Fn(&RelPath) -> bool,
+    keep_batch: impl Fn(&[SelectedFile]) -> bool,
+) -> ScanPlan {
+    let files_selected = plan.files_selected;
+    let steps = plan
+        .steps
+        .into_iter()
+        .map(|step| {
+            let evaluation = match step.evaluation {
+                Evaluation::SingleFile { batch } => Evaluation::SingleFile {
+                    batch: batch
+                        .into_iter()
+                        .filter(|file| keep_file(file.path()))
+                        .collect(),
+                },
+                Evaluation::MultiFile { directories, .. } => {
+                    let directories: Vec<DirectoryBatch> = directories
+                        .into_iter()
+                        .filter(|directory| keep_batch(directory.files()))
+                        .collect();
+                    let evaluated = directories.iter().map(|batch| batch.files().len()).sum();
+                    Evaluation::MultiFile {
+                        directories,
+                        evaluated,
+                    }
+                }
+            };
+            RuleStep {
+                rule: step.rule,
+                evaluation,
+            }
+        })
+        .collect();
+    ScanPlan::new(steps, files_selected)
+}
+
+#[must_use]
+pub fn batch_mates(plan: &ScanPlan, file: &RelPath) -> BTreeSet<RelPath> {
+    plan.steps
+        .iter()
+        .filter_map(|step| match &step.evaluation {
+            Evaluation::MultiFile { directories, .. } => Some(directories),
+            Evaluation::SingleFile { .. } => None,
+        })
+        .flatten()
+        .filter(|batch| batch.files().iter().any(|member| member.path() == file))
+        .flat_map(|batch| batch.files().iter().map(SelectedFile::path))
+        .filter(|path| *path != file)
+        .cloned()
         .collect()
 }
 

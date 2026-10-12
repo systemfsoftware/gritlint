@@ -1,0 +1,11 @@
+language css
+
+pattern forbiddenLicense() { `"UNLICENSED"` }
+
+pattern gritlint_exported_rule() {
+  `color: red`
+}
+
+gritlint_exported_rule() as $gritlint_match where {
+  register_diagnostic(span = $gritlint_match, message = "Do not set color to red.", severity = "error")
+}

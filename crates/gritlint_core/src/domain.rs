@@ -9,6 +9,51 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ExportRefusal {
+    rule: String,
+    reason_code: &'static str,
+    detail: String,
+    next_action: &'static str,
+}
+
+impl ExportRefusal {
+    #[must_use]
+    pub fn new(
+        rule: String,
+        reason_code: &'static str,
+        detail: String,
+        next_action: &'static str,
+    ) -> Self {
+        Self {
+            rule,
+            reason_code,
+            detail,
+            next_action,
+        }
+    }
+
+    #[must_use]
+    pub fn reason_code(&self) -> &'static str {
+        self.reason_code
+    }
+
+    #[must_use]
+    pub fn next_action(&self) -> &'static str {
+        self.next_action
+    }
+}
+
+impl fmt::Display for ExportRefusal {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            formatter,
+            "{}: {}: {} Next action: {}",
+            self.rule, self.reason_code, self.detail, self.next_action
+        )
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct NonEmpty<T> {
     head: T,
     tail: Vec<T>,
@@ -659,6 +704,12 @@ impl Sources {
     #[must_use]
     pub fn text(&self, path: &RelPath) -> Option<&str> {
         self.0.get(path).map(String::as_str)
+    }
+
+    #[must_use]
+    pub fn overlaid(mut self, texts: impl IntoIterator<Item = (RelPath, String)>) -> Self {
+        self.0.extend(texts);
+        self
     }
 }
 

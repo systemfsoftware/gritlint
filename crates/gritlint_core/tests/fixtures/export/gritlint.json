@@ -1,0 +1,7 @@
+{
+  "packs": {
+    "export-fixtures": {
+      "forbiddenLicense": "`\"UNLICENSED\"`"
+    }
+  }
+}

@@ -16,6 +16,8 @@ clap = { version = "4.5", features = ["derive"] }
 globset = "0.4"
 ignore = "0.4"
 include_dir = "0.7"
+lsp-server = "0.10"
+lsp-types = "0.97"
 proptest = "1"
 rayon = "1.12"
 regex = "1"

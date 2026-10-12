@@ -79,6 +79,13 @@ pub fn is_file(path: &Path) -> bool {
     path.is_file()
 }
 
+pub fn absolute(path: &Path) -> Result<PathBuf, GritlintError> {
+    std::fs::canonicalize(path).map_err(|source| GritlintError::Io {
+        path: path.to_owned(),
+        source,
+    })
+}
+
 fn read_source(path: &Path) -> Result<RuleSource, GritlintError> {
     let text = read_text(path)?;
     Ok(RuleSource::new(SourcePath::new(path.to_owned()), text))
