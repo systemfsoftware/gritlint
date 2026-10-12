@@ -50,6 +50,8 @@ for key, dependency in tomllib.loads(manifest.read_text())["dependencies"].items
     package = tomllib.loads((copy / "Cargo.toml").read_text())["package"]
     version = package["version"] if isinstance(package["version"], str) else workspace_version
     if (name, version) not in locked:
+        if any(locked_name == name for locked_name, _ in locked):
+            failures.append(f"{name}: {dependency['path']} declares {version}, which is not the version Cargo.lock locks")
         continue
     crate = f"{name}-{version}"
     vendored = vendored_copies(crate)
