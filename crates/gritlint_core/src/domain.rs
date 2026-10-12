@@ -825,13 +825,8 @@ impl DirectoryBatch {
 
 #[derive(Debug, Clone)]
 pub(crate) enum Evaluation {
-    SingleFile {
-        batch: Vec<SelectedFile>,
-    },
-    MultiFile {
-        directories: Vec<DirectoryBatch>,
-        evaluated: usize,
-    },
+    SingleFile { batch: Vec<SelectedFile> },
+    MultiFile { directories: Vec<DirectoryBatch> },
 }
 
 #[derive(Debug, Clone)]

@@ -1,0 +1,11 @@
+language json
+
+pattern forbiddenLicense() { `"UNLICENSED"` }
+
+pattern gritlint_exported_rule() {
+  `"separator": $value`
+}
+
+gritlint_exported_rule() as $gritlint_match where {
+  register_diagnostic(span = $gritlint_match, message = "A path is not written with `\\` separators.", severity = "error")
+}

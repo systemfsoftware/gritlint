@@ -95,6 +95,10 @@ pub enum GritlintError {
         "{file}: {TARGET_NOT_SCANNED}: {message} Next action: report the message and the file to gritlint; the engine could not scan the file, so the run cannot pass it."
     )]
     TargetNotScanned { file: String, message: String },
+    #[error(
+        "{file}: {TARGET_UNREADABLE}: {message} Next action: make the file readable UTF-8 text, or add it to `ignore` in the gritlint config; `gritlint check` refuses the run until then."
+    )]
+    TargetUnreadable { file: String, message: String },
     #[error("target file `{path}` was planned for a rule but never read")]
     SourceUnread { path: String },
     #[error("ignore glob `{glob}` is invalid: {message}")]
@@ -116,6 +120,7 @@ pub enum GritlintError {
 const TARGET_DOES_NOT_PARSE: &str = "target-does-not-parse";
 const TARGET_TOO_LARGE: &str = "target-too-large";
 const TARGET_NOT_SCANNED: &str = "target-not-scanned";
+const TARGET_UNREADABLE: &str = "target-unreadable";
 
 /// Why the engine refused one target file. Only a parse failure has a position.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -123,6 +128,7 @@ pub enum TargetReason {
     DoesNotParse { line: u32, column: u32 },
     TooLarge,
     NotScanned,
+    Unreadable,
 }
 
 impl TargetReason {
@@ -132,6 +138,7 @@ impl TargetReason {
             Self::DoesNotParse { .. } => TARGET_DOES_NOT_PARSE,
             Self::TooLarge => TARGET_TOO_LARGE,
             Self::NotScanned => TARGET_NOT_SCANNED,
+            Self::Unreadable => TARGET_UNREADABLE,
         }
     }
 
@@ -139,7 +146,7 @@ impl TargetReason {
     pub const fn position(self) -> Option<(u32, u32)> {
         match self {
             Self::DoesNotParse { line, column } => Some((line, column)),
-            Self::TooLarge | Self::NotScanned => None,
+            Self::TooLarge | Self::NotScanned | Self::Unreadable => None,
         }
     }
 }
@@ -183,6 +190,9 @@ impl GritlintError {
         }
         if let Self::TargetNotScanned { file, .. } = self {
             return refusal(file, TargetReason::NotScanned);
+        }
+        if let Self::TargetUnreadable { file, .. } = self {
+            return refusal(file, TargetReason::Unreadable);
         }
         None
     }

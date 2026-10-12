@@ -108,7 +108,8 @@ workspace root: a document outside ROOT, or one `check` would not select, gets n
 diagnostics. Under `packages.<system>.gritlint` only the working directory is
 readable. A config `check` refuses fails `initialize` with the same text, and
 the server exits 2 after `exit`; `shutdown` then `exit` exits 0, `exit` alone 1.
-A file the engine cannot scan does not stop the server: it gets one diagnostic
+A file the engine cannot scan, or a closed file the server cannot read as UTF-8
+text (`target-unreadable`), does not stop the server: it gets one diagnostic
 with the target reason code, each open document whose multifile batch read it
 gets one naming it, and everything else is still reported. `gritlint.json` and
 the packs are read once, at start.

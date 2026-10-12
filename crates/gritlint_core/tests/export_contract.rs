@@ -62,6 +62,7 @@ fn each_exportable_rule_renders_its_committed_plugin() {
     let rules = rules(&workspace);
 
     for name in [
+        "backslash-separator",
         "bare-js-console",
         "forbidden-license",
         "jsx-console",
@@ -93,6 +94,10 @@ fn each_refused_rule_reports_its_own_reason_code() {
         ("calls-sibling", "export-library"),
         ("calls-sibling-helper", "export-library"),
         ("nope", "export-unknown-rule"),
+        ("first-multifile-yaml", "export-multifile"),
+        ("first-language-function", "export-language"),
+        ("first-construct-rewrite", "export-construct"),
+        ("first-rewrite-library", "export-rewrite"),
     ] {
         let refused = exported(&rules, &format!("export-fixtures/{name}"));
         assert_eq!(refused.map_err(|(code, _)| code), Err(code), "{name}");

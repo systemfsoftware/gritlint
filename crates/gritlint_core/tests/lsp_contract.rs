@@ -604,6 +604,47 @@ fn a_closed_sibling_over_the_size_limit_is_named_at_the_start_of_the_open_docume
 }
 
 #[test]
+fn an_unreadable_closed_sibling_is_named_on_the_open_documents_of_its_batch_until_it_reads() {
+    let temp = tempfile::tempdir().expect("temp dir");
+    let root = fs::canonicalize(temp.path()).expect("canonical temp dir");
+    fs::create_dir(root.join("a")).expect("create a/");
+    fs::write(root.join("a/x.json"), [0xff, 0xfe]).expect("write a/x.json");
+    let document = root.join("a/package.json");
+    let text = "{\n  \"license\": \"UNLICENSED\"\n}\n";
+    fs::write(&document, text).expect("write a/package.json");
+    let session = Session::at(root.clone(), &["license", "directory-read"], Vec::new());
+    assert_eq!(
+        session.initialize(&[]).err().map(|error| error.message),
+        None
+    );
+
+    session.open(&document, text);
+    let diagnostics = session.published().diagnostics;
+    assert_eq!(
+        summary(&diagnostics),
+        vec![
+            ("unlicensed".to_owned(), (1, 2, 1, 25)),
+            ("target-unreadable".to_owned(), (0, 0, 0, 0)),
+        ]
+    );
+    let refusal = diagnostics.get(1).expect("the sibling's refusal");
+    assert!(
+        refusal.message.starts_with("a/x.json: target-unreadable: "),
+        "{}",
+        refusal.message
+    );
+
+    fs::write(root.join("a/x.json"), "{}\n").expect("repair a/x.json");
+    session.change(&document, text);
+    assert_eq!(
+        summary(&session.published().diagnostics),
+        vec![("unlicensed".to_owned(), (1, 2, 1, 25))]
+    );
+
+    assert_eq!(session.shutdown(), Ending::Shutdown);
+}
+
+#[test]
 fn a_missing_root_initializes_and_publishes_empty_sets_as_check_selects_nothing() {
     let temp = tempfile::tempdir().expect("temp dir");
     let root = fs::canonicalize(temp.path())

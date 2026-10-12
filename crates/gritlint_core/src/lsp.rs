@@ -399,23 +399,19 @@ impl Server<'_> {
     ) -> Result<(Outcome, Vec<Refusal>), GritlintError> {
         let mut refusals = Vec::new();
         let mut needed = decide::sources_needed(&plan);
-        let sources = self.sources(&needed, open)?;
+        let sources = loop {
+            let error = match self.sources(&needed, open) {
+                Ok(sources) => break sources,
+                Err(error) => error,
+            };
+            (plan, needed) = drop_refused_target(plan, &needed, error, &mut refusals)?;
+        };
         loop {
             let error = match decide::scan(&plan, &sources) {
                 Ok(outcome) => return Ok((outcome, refusals)),
                 Err(error) => error,
             };
-            let Some(refusal) = refusal_of(&error, &plan) else {
-                return Err(error);
-            };
-            let narrowed = decide::without(plan, &refusal.file);
-            let narrowed_needed = decide::sources_needed(&narrowed);
-            if narrowed_needed == needed {
-                return Err(error);
-            }
-            refusals.push(refusal);
-            plan = narrowed;
-            needed = narrowed_needed;
+            (plan, needed) = drop_refused_target(plan, &needed, error, &mut refusals)?;
         }
     }
 
@@ -427,13 +423,21 @@ impl Server<'_> {
         let (overlay, disk): (Vec<&RelPath>, Vec<&RelPath>) =
             needed.iter().partition(|path| open.contains_key(*path));
         let disk: Vec<RelPath> = disk.into_iter().cloned().collect();
-        Ok(self
-            .files
-            .read(&self.root, &disk)?
-            .overlaid(overlay.into_iter().filter_map(|path| {
-                open.get(path)
-                    .map(|document| (path.clone(), document.text.clone()))
-            })))
+        let read = self.files.read(&self.root, &disk).map_err(|error| {
+            if let GritlintError::Io { path, source } = &error
+                && let Ok(file) = RelPath::from_root(&self.root, path)
+            {
+                return GritlintError::TargetUnreadable {
+                    file: file.as_str().to_owned(),
+                    message: source.to_string(),
+                };
+            }
+            error
+        })?;
+        Ok(read.overlaid(overlay.into_iter().filter_map(|path| {
+            open.get(path)
+                .map(|document| (path.clone(), document.text.clone()))
+        })))
     }
 
     fn diagnostics(
@@ -536,6 +540,24 @@ fn selected_open(files: &SelectedFiles, open: &BTreeMap<RelPath, &Document>) -> 
         .filter(|path| open.contains_key(*path))
         .cloned()
         .collect()
+}
+
+fn drop_refused_target(
+    plan: crate::domain::ScanPlan,
+    needed: &[RelPath],
+    error: GritlintError,
+    refusals: &mut Vec<Refusal>,
+) -> Result<(crate::domain::ScanPlan, Vec<RelPath>), GritlintError> {
+    let Some(refusal) = refusal_of(&error, &plan) else {
+        return Err(error);
+    };
+    let narrowed = decide::without(plan, &refusal.file);
+    let narrowed_needed = decide::sources_needed(&narrowed);
+    if narrowed_needed == needed {
+        return Err(error);
+    }
+    refusals.push(refusal);
+    Ok((narrowed, narrowed_needed))
 }
 
 fn refusal_of(error: &GritlintError, plan: &crate::domain::ScanPlan) -> Option<Refusal> {

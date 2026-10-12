@@ -45,14 +45,8 @@ pub fn plan(rules: &NonEmpty<CompiledRule>, files: &SelectedFiles) -> ScanPlan {
                 RuleKind::MultiFile => {
                     let mut input = batch;
                     input.extend(participants(rule, files, key));
-                    let directories = partition_multifile(rule, &input);
-                    let evaluated = directories
-                        .iter()
-                        .map(|directory| directory.files().len())
-                        .sum();
                     Evaluation::MultiFile {
-                        directories,
-                        evaluated,
+                        directories: partition_multifile(rule, &input),
                     }
                 }
             };
@@ -120,17 +114,12 @@ fn narrow(
                         .filter(|file| keep_file(file.path()))
                         .collect(),
                 },
-                Evaluation::MultiFile { directories, .. } => {
-                    let directories: Vec<DirectoryBatch> = directories
+                Evaluation::MultiFile { directories } => Evaluation::MultiFile {
+                    directories: directories
                         .into_iter()
                         .filter(|directory| keep_batch(directory.files()))
-                        .collect();
-                    let evaluated = directories.iter().map(|batch| batch.files().len()).sum();
-                    Evaluation::MultiFile {
-                        directories,
-                        evaluated,
-                    }
-                }
+                        .collect(),
+                },
             };
             RuleStep {
                 rule: step.rule,
@@ -146,7 +135,7 @@ pub fn batch_mates(plan: &ScanPlan, file: &RelPath) -> BTreeSet<RelPath> {
     plan.steps
         .iter()
         .filter_map(|step| match &step.evaluation {
-            Evaluation::MultiFile { directories, .. } => Some(directories),
+            Evaluation::MultiFile { directories } => Some(directories),
             Evaluation::SingleFile { .. } => None,
         })
         .flatten()
@@ -375,7 +364,7 @@ fn tasks_of(step: &RuleStep) -> Vec<Task<'_>> {
     let rule = &step.rule;
     match &step.evaluation {
         Evaluation::SingleFile { batch } => vec![Task::Single { rule, batch }],
-        Evaluation::MultiFile { directories, .. } => directories
+        Evaluation::MultiFile { directories } => directories
             .iter()
             .map(|directory| Task::Directory { rule, directory })
             .collect(),
@@ -385,7 +374,10 @@ fn tasks_of(step: &RuleStep) -> Vec<Task<'_>> {
 fn count_of(step: &RuleStep) -> RuleCount {
     let evaluated = match &step.evaluation {
         Evaluation::SingleFile { batch } => batch.len(),
-        Evaluation::MultiFile { evaluated, .. } => *evaluated,
+        Evaluation::MultiFile { directories } => directories
+            .iter()
+            .map(|directory| directory.files().len())
+            .sum(),
     };
     RuleCount::new(step.rule.rule().id().clone(), evaluated)
 }
