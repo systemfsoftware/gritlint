@@ -43,5 +43,4 @@ copy: this directory, the root `Cargo.toml`'s `[patch]` entry and its workspace
 `exclude`, in `nix/gritlint.nix` the `../vendor` source entry, `grammar` and
 `extraDummyScript`, the `gritlint-vendor-sync` check, and its bullet in
 `docs/solutions/tooling-decisions/gritlint-conventions-platform.md`. Then run
-`cargo update -p tree-sitter-typescript` and rebuild the vendor staging
-derivation for the new `cargoDeps.hash`.
+`cargo update -p tree-sitter-typescript`.

@@ -149,7 +149,7 @@
             '';
           }
           // import ./nix/gritlint-checks.nix {
-            inherit (pkgs) lib runCommand;
+            inherit (pkgs) lib runCommand python3;
             craneLib = craneFor pkgs;
             # Language support does not vary by architecture, so one system checks the MSRV.
             craneLibMsrv =

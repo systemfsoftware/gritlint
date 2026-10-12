@@ -85,19 +85,17 @@ per-platform npm packages behind a launcher with no postinstall step.
   owns the effect (pnpm-release-management's changeset check).
 - Facts that span packages come from the adopter's `gritlint.json` parameters, because GritQL cannot resolve package
   specifiers.
-- Re-pinning the engine is `cargo update` on the `rev`, then the engine contract tests, then the new `cargoHash` in
-  `gritlint.nix` that `nix build` reports. The vendor tree is a fixed-output hash on purpose: the gritql checkout holds
-  duplicate crate names, and a vendoring step that picks by name alone built different sources on different machines.
+- Re-pinning the engine is `cargo update` on the `rev`, then the engine contract tests, then `engineHash` in
+  `gritlint.nix`, which the failing build names. That hash covers only the engine checkout, so a version PR never moves
+  it. The gritql checkout holds the same grammar crates twice, so `gritlint.nix` deletes the upstream copies before
+  crane keeps one per name and version. Gate: the flake check `gritlint-vendor-engine-copies` fails when a vendored
+  grammar differs from the copy the engine's manifest names.
 - `vendor/tree-sitter-typescript` patches the engine's TypeScript grammar with one scanner change (its README). A re-pin
   copies the new rev's grammar there and re-applies the change. A stale copy still builds and silently parses with the
   old grammar. Gate: the flake check `gritlint-vendor-sync` (`nix/gritlint-checks.nix`), built by every CI job, compares
   every file the vendored crate's `include` lists, plus `Cargo.toml` and `LICENSE`, with the pinned rev's copy and fails
   naming each file that differs or exists on one side only; `README.md` and `common/scanner.h` are the two exceptions.
   wrong: the `rev` moves and `vendor/` keeps the old `parser.c`. right: the copied files match the new rev.
-- After any `Cargo.lock` edit, rebuild the vendor staging derivation with `nix build --rebuild` to get the new
-  `cargoDeps.hash`. A plain build reuses the fixed-output path already in the store and reports no mismatch: patching
-  in `vendor/tree-sitter-typescript` built clean on the old hash until `--rebuild` failed it. The command is in
-  [fetch-cargo-vendor-given-whole-source-rebuilds-crane-deps.md](../performance-issues/fetch-cargo-vendor-given-whole-source-rebuilds-crane-deps.md).
 
 ## Related
 
