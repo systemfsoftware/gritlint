@@ -14,9 +14,9 @@ execution: code
 
 - **Objective:** every pull request run and every push to `main` starts from `main`'s newest Nix store bundle, so a tests-only pull request finishes well inside the 10-minute PR budget instead of rebuilding the GritQL dependency tree cold.
 - **Means:** only runs on `refs/heads/main` export and save the bundle. Every other run restores and never saves (KTD1).
-- **Authority:** this plan, then the sub-conductor rulings of 2026-10-11. KTD1 replaces the saving sentence of KTD13 in `docs/plans/2026-10-10-1309-feat-gritlint-standalone-plan.md` (R7). That plan stays frozen.
+- **Authority:** this plan, then the sub-conductor rulings of 2026-10-11. KTD1 replaces the saving sentence of KTD13 in `docs/plans/2026-10-11-1301-feat-gritlint-standalone-plan.md` (R7). That plan stays frozen.
 - **Stop conditions:** stop and ask before adding any tool or action, changing an action pin, adding a credential or an external cache, or changing `timeout-minutes`.
-- **Execution profile:** one unit, one commit, on `ci/store-cache-main-only` cut from `origin/main` (`d96dc51c1`). The PR into `main` carries the Verification Contract numbers available before merge, and a post-merge update carries the rest. The operator merges.
+- **Execution profile:** one unit, one commit, on `ci/store-cache-main-only` cut from `origin/main` (`d96dc51c1`), with `origin/main` at `f552830c1` (#15, #16) merged in before U1. The PR into `main` carries the Verification Contract numbers available before merge, and a post-merge update carries the rest. The operator merges.
 
 ---
 
@@ -77,10 +77,10 @@ Result: #16, a tests-only pull request, restored nothing. Its x86_64 job took 59
 
 None blocks U1.
 
-- Q1. **Merge order with #15.** Either order merges clean (Planning Contract, Merge with open PRs). Recommendation: merge whichever PR is green first. If #15 lands first, its `main` push seeds the first bundle, and this PR's next run is V3 with no extra step.
-- Q2. **The source of V3 if this lands first.** #15 and #16 restore their own legacy entries (AE4), and PR7 is on hold. Recommendation: the operator deletes #16's two entries, IDs 8799211987 and 8799099032 (2.55 GB, `gh cache delete` needs `actions: write`, which the agent's PAT lacks), then closes and reopens #16. Its next run restores `main`'s bundle. #16's own store is `main` plus one test file, so it loses nothing.
+- Q1. *(Resolved: #15 merged first, as `5e296917c`, then #16 as `f552830c1`.)* Both `main` pushes save under today's rule, so `5e296917c`'s push seeds the first `main` bundle and this branch merges `main` with no conflict.
+- Q2. *(Resolved by Q1.)* V3's source is this PR's own first run: its merge ref holds no entry, and `main` holds `5e296917c`'s or a later bundle. No legacy entry has to be deleted.
 - Q3. **R14's warm-run definition in the standalone plan** ("a re-run attempt of the same run, after the first attempt saved its caches") no longer applies to pull requests, which stop saving. Recommendation: leave R14 as the record of PR2's measurement. KTD4 defines cold and warm for this lane from here on.
-- Q4. **#15's legacy entries (8 GB).** Recommendation: keep them. They are #15's warmest store, its runs keep accessing the newest pair, and eviction removes the older pair at the first `main` save. Once #15 merges, nothing accesses them and eviction removes them.
+- Q4. *(Resolved by Q1.)* #15 and #16 merged, so nothing accesses their legacy entries any more. They are the oldest accessed, so eviction removes them first once a `main` save takes the total over 10 GB.
 
 ### Sources
 
@@ -122,12 +122,9 @@ Estimated cost, from the jobs API numbers above. These are estimates, to be repl
 
 ### Merge with open PRs
 
-#15 (`feat/npm-tarball-release`, `0dfe7947`) adds steps between `Benchmark against PR1` and the export, and new jobs at the end. It does not touch the export or save steps. A scratch `git merge-tree` of the two-line `if:` change against `0dfe7947` merged clean in both orders to the same tree, with the conditioned steps after #15's `upload-artifact` step.
+#15 and #16 are on `main`. #15 added `The npm tarball rebuilds bit for bit` and its `upload-artifact` step between `Benchmark against PR1` and the export, and the `tarballs-match` and `changeset-intent` jobs. It did not touch the export or save steps, which now sit at `ci.yml:95-111`. This branch merged `origin/main` at `f552830c1` with no conflict, and KTD1 changes only the `if:` lines at `ci.yml:96` and `ci.yml:107`.
 
-- This merges first: #15 then merges `main` with no conflict. Its runs restore its own legacy entries (AE4) and no longer save.
-- #15 merges first: its `main` push still saves under today's rule, which seeds the first `main` bundle. This branch then merges `main` with no conflict, and its own next run restores that bundle.
-
-#16 touches only `crates/gritlint_core/tests/rule_loading.rs` and its plan, so it shares no file with this change. Any push to `main` before this merges, #16's included, seeds a `main` bundle under today's rule.
+Every `main` push after #15, the merge of this PR excepted, saves under today's rule, which is the same rule KTD1 keeps for `main`. So the cold and warm `main` figures (V2, V4) can come from `main` pushes made before this PR merges.
 
 ### Assumptions
 
@@ -143,7 +140,7 @@ Estimated cost, from the jobs API numbers above. These are estimates, to be repl
 - **Goal:** pull request runs restore and never export or save. `main` runs behave as today.
 - **Requirements:** R1 to R4, R6, R7. KTD1, KTD2.
 - **Dependencies:** none.
-- **Files:** `.github/workflows/ci.yml`, the `if:` of `Export the unsigned store paths` and of `Save the Nix store cache`.
+- **Files:** `.github/workflows/ci.yml`, the `if:` of `Export the unsigned store paths` (`ci.yml:96`) and of `Save the Nix store cache` (`ci.yml:107`).
 - **Approach:** add the KTD1 ref test to both existing `if:` expressions. Nothing else changes: no action pin, `timeout-minutes`, key, restore-key or other step.
 - **Patterns to follow:** the existing `matrix.system == 'x86_64-linux'` step conditions in `ci.yml`.
 - **Test scenarios:** Test expectation: none. This is workflow configuration, and the Verification Contract runs prove it on GitHub.
@@ -157,10 +154,10 @@ All times are per-job `completed_at - started_at` from `GET /repos/systemfsoftwa
 
 | ID | Run | Proof | Fallback |
 | --- | --- | --- | --- |
-| V1 | Cold pull request: this PR's first run while `main` holds no bundle | `Nix store cache` restores nothing. Export and save are `skipped` on both systems. Wall time per system. | If a push to `main` came first, this run is V3. The cold pull request figure is then the pre-change run 38149555075 (x86_64 592 s, aarch64 282 s). |
-| V2 | Cold push to `main`: the first push after merge while `main` holds no bundle | Nothing restored. Export and save run. The caches API shows one entry per system with ref `refs/heads/main`. | If `main` already held a bundle, the cold figure is run 38069169248 (x86_64 565 s, aarch64 261 s), and this push is V4. |
+| V1 | Cold pull request: this PR's first run while `main` holds no bundle | `Nix store cache` restores nothing. Export and save are `skipped` on both systems. Wall time per system. | `main` held a bundle before this PR opened (Q1), so this PR's first run is V3. The cold pull request figure is the pre-change run 38149555075 (x86_64 592 s, aarch64 282 s). |
+| V2 | Cold push to `main`: the first push while `main` holds no bundle | Nothing restored. Export and save run. The caches API shows one entry per system with ref `refs/heads/main`. | `5e296917c`'s push (#15) when it found no `main` bundle, else run 38069169248 (x86_64 565 s, aarch64 261 s). |
 | V3 | Warm pull request: a run, after `main` holds a bundle, of a pull request whose own ref holds no entry | The restored key in the `Nix store cache` log equals a `refs/heads/main` key in the caches API. Export and save are `skipped`. Wall time per system. | Source per merge order: Q1, Q2. |
-| V4 | Warm push to `main`: a push that restores a previous `main` bundle | Restores by prefix and saves a new generation. Wall time per system. | none |
+| V4 | Warm push to `main`: a push that restores a previous `main` bundle | Restores by prefix and saves a new generation. Wall time per system. | `f552830c1`'s push (#16), which restores `5e296917c`'s bundle by prefix. |
 | V5 | Footprint after V4 | Every entry created after the merge has ref `refs/heads/main`. No `refs/pull/*` entry is newer than the merge. | none |
 
 Each job's time is listed, and a job over 10 minutes is named with its time. Nothing is cut.
@@ -170,5 +167,5 @@ Each job's time is listed, and a job over 10 minutes is named with its time. Not
 ## Definition of Done
 
 - U1 merged: `.github/workflows/ci.yml` changed, nothing else.
-- The PR body carries V1, and V3 when a push to `main` preceded the merge. A post-merge update carries V2 to V5, each with its run link and per-system wall times.
+- The PR body carries V1, V2, V3 and V4. A post-merge update carries V5, with its run link.
 - No scratch worktree, probe branch or throwaway script remains.
