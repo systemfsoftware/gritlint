@@ -44,7 +44,7 @@ cargoDeps = rustPlatform.fetchCargoVendor {
 
 After the change, the same edit changes only `gritlint-unwrapped`'s drvPath. `vendor`, `cargoArtifacts` and `devArtifacts` stay identical.
 
-This vendor was replaced on 2026-10-12. A lock-only source still carries the workspace members' versions, and `fetchCargoVendor` copies the lock into its fixed output, so the version PR (#18) broke the hash. The vendor now comes from crane's hashless `vendorCargoDeps`: [fixed-output-cargo-vendor-hash-covers-workspace-versions.md](../build-errors/fixed-output-cargo-vendor-hash-covers-workspace-versions.md).
+This vendor was replaced on 2026-10-12. A lock-only source still carries the workspace members' versions, and `fetchCargoVendor` copies the lock into its fixed output, so the version PR (#18) broke the hash. The vendor now comes from crane's `vendorCargoDeps`, whose only fixed-output hash covers the engine checkout: [fixed-output-cargo-vendor-hash-covers-workspace-versions.md](../build-errors/fixed-output-cargo-vendor-hash-covers-workspace-versions.md).
 
 ## Why This Works
 

@@ -3,7 +3,7 @@
 # Five facts about the pinned engine drive this file.
 #
 # 1. Cargo.lock is the only place the biomejs/gritql rev appears; it is read
-#    out of the lock here for the engine checkout below.
+#    out of the lock here for the engine checkouts below.
 # 2. Sixteen grammar crates appear twice in the gritql checkout under one
 #    name and version: the engine's manifests build the copies in
 #    `resources/language-metavariables`, and the git submodules in
@@ -13,8 +13,10 @@
 #    upstream copies before crane scans the checkout. The two `xtask` crates
 #    under `vendor/` also share a name and version, but they are workspace
 #    members there and no lock entry names them, so they stay and are never
-#    linked. Three locked crates live only in the engine's submodules, which
-#    crane fetches.
+#    linked. Three locked crates (`tree-sitter-facade-sg`, `tree-sitter-gritql`,
+#    `web-tree-sitter-sg`) live only in the engine's `vendor/` submodules,
+#    which the engine fetch includes. `gritlint-vendor-engine-copies` checks
+#    each vendored grammar against the copy the engine's manifest names.
 # 3. crane copies a git crate's files as `cargo package --list` names them,
 #    and cargo leaves out any directory holding its own Cargo.toml. The
 #    grammars `tree-sitter-php` and `tree-sitter-md` keep their sources in
@@ -33,10 +35,13 @@
 #    crate back over the stub. It comes from its own store path, so a
 #    workspace edit does not rebuild the dependencies.
 #
-# The vendor carries no fixed-output hash: crane fetches each registry crate
-# by its Cargo.lock checksum and the engine with `builtins.fetchGit` at the
-# locked rev, and reads nothing else from the lock. A version bump rewrites
-# only the workspace members' lock entries, so it leaves the vendor as it was.
+# The vendor reads only third-party lock entries. crane fetches each registry
+# crate by its Cargo.lock checksum, and the engine checkout, submodules
+# included, as one fixed-output fetch keyed to the locked rev (`engineHash`).
+# That fetch runs at build time, so the store cache serves it. A version bump
+# rewrites only the workspace members' lock entries and leaves the vendor as
+# it was (`gritlint-vendor-ignores-workspace-versions`); only an engine re-pin
+# changes `engineHash`, and the build then names the new hash.
 #
 # The package links its dependencies with fat LTO, so it builds against
 # release-profile dependency artifacts; clippy, the tests and `cargo tree`
@@ -44,6 +49,7 @@
 {
   lib,
   craneLib,
+  fetchgit,
   runCommand,
   version,
 }:
@@ -51,25 +57,31 @@
 let
   engineRepo = "https://github.com/biomejs/gritql";
 
-  # `builtins.match` is POSIX ERE, so the `+`, `.` and `?` are escaped.
-  engineRevs = lib.unique (
-    builtins.concatLists (
-      builtins.filter (hit: hit != null) (
-        map (builtins.match "source = \"git\\+https://github\\.com/biomejs/gritql\\?rev=([0-9a-f]+)#.*\"") (
-          lib.splitString "\n" (builtins.readFile ../Cargo.lock)
-        )
-      )
-    )
+  cargoLock = lib.importTOML ../Cargo.lock;
+
+  engineSourceIds = lib.unique (
+    builtins.filter (lib.hasPrefix "git+${engineRepo}?") (map (p: p.source or "") cargoLock.package)
   );
 
-  engineRev =
-    assert lib.assertMsg (builtins.length engineRevs == 1)
-      "nix/gritlint.nix: Cargo.lock must pin exactly one biomejs/gritql rev, found ${toString (builtins.length engineRevs)}";
-    builtins.head engineRevs;
+  # The lock's source string, `git+<repo>?rev=<rev>#<rev>`, which is also the
+  # key crane looks the engine's hash up by.
+  engineSourceId =
+    assert lib.assertMsg (builtins.length engineSourceIds == 1)
+      "nix/gritlint.nix: Cargo.lock must pin exactly one biomejs/gritql rev, found ${toString (builtins.length engineSourceIds)}";
+    builtins.head engineSourceIds;
 
-  engineSource = builtins.fetchGit {
+  engineRev = lib.last (lib.splitString "#" engineSourceId);
+
+  engineHash = "sha256-+kYe4+DOqjbB6mlRkz6u86dp1/B9fooA+l/oR2dMBZo=";
+
+  # The same fixed-output fetch crane makes for `outputHashes`, so the vendor
+  # and the checks share one engine checkout, fetched at build time.
+  engineSource = fetchgit {
     url = engineRepo;
     rev = engineRev;
+    hash = engineHash;
+    fetchSubmodules = true;
+    fetchLFS = true;
   };
 
   # Only what cargo and clippy read: a flake, workflow or docs edit must not
@@ -91,36 +103,44 @@ let
     ];
   };
 
-  cargoDeps = craneLib.vendorCargoDeps {
-    cargoLock = ../Cargo.lock;
-    overrideVendorGitCheckout =
-      packages: checkout:
-      if lib.any (p: lib.hasPrefix "git+${engineRepo}?" p.source) packages then
-        checkout.overrideAttrs (old: {
-          preInstall = (old.preInstall or "") + ''
-            rm -r resources/language-submodules
-            find resources/language-metavariables -mindepth 3 -name Cargo.toml -delete
-          '';
-        })
-      else
-        checkout;
-  };
+  # The vendor as a function of the parsed lock, so a check can hand it a lock
+  # whose workspace members moved.
+  vendorFor =
+    lock:
+    let
+      cargoDeps = craneLib.vendorCargoDeps {
+        cargoLockParsed = lock;
+        outputHashes.${engineSourceId} = engineHash;
+        overrideVendorGitCheckout =
+          packages: checkout:
+          if lib.any (p: p.source == engineSourceId) packages then
+            checkout.overrideAttrs (old: {
+              preInstall = (old.preInstall or "") + ''
+                rm -r resources/language-submodules
+                find resources/language-metavariables -mindepth 3 -name Cargo.toml -delete
+              '';
+            })
+          else
+            checkout;
+      };
+    in
+    # The registry crates are linked as they are; only the engine's crates
+    # need its resources beside them, so only their source directory is copied.
+    runCommand "gritlint-vendor" { } ''
+      mkdir -p $out/resources
+      for source in ${cargoDeps}/*/; do
+        source=''${source%/}
+        if [ -n "$(find "$source/" -maxdepth 1 -name 'marzano-language-*')" ]; then
+          cp -rL "$source" "$out/"
+        else
+          ln -s "$source" "$out/"
+        fi
+      done
+      cp -r ${engineSource}/resources/node-types $out/resources/node-types
+      substitute ${cargoDeps}/config.toml $out/config.toml --replace-fail ${cargoDeps} $out
+    '';
 
-  # The registry crates are linked as they are; only the engine's crates need
-  # its resources beside them, so only their source directory is copied.
-  vendor = runCommand "gritlint-vendor" { } ''
-    mkdir -p $out/resources
-    for source in ${cargoDeps}/*/; do
-      source=''${source%/}
-      if [ -n "$(find "$source/" -maxdepth 1 -name 'marzano-language-*')" ]; then
-        cp -rL "$source" "$out/"
-      else
-        ln -s "$source" "$out/"
-      fi
-    done
-    cp -r ${engineSource}/resources/node-types $out/resources/node-types
-    substitute ${cargoDeps}/config.toml $out/config.toml --replace-fail ${cargoDeps} $out
-  '';
+  vendor = vendorFor cargoLock;
 
   grammar = lib.fileset.toSource {
     root = ../vendor/tree-sitter-typescript;
@@ -164,9 +184,11 @@ craneLib.buildPackage (
     passthru = {
       releaseArgs = common;
       inherit
+        cargoLock
         engineRev
         engineSource
         vendor
+        vendorFor
         cargoArtifacts
         devArgs
         devArtifacts
