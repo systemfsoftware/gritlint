@@ -1,0 +1,29 @@
+{
+  // Read by systemfsoftware/pnpm-release-management's release tools, which
+  // .github/workflows/release.yml and changeset-check.yml call as reusable
+  // workflows.
+  "base": "main",
+  "branch": "changeset-release/main",
+  "versioning": {
+    // The launcher package versions from the `.changeset/` intents that name
+    // it, and the Rust workspace follows it: the `cargo` surface rewrites
+    // `[workspace.package]` in Cargo.toml and the workspace members in
+    // Cargo.lock, and the flake reads the version from Cargo.toml.
+    //
+    // The root package.json keeps a `version` although it is private and never
+    // released: `version-management bump` decodes it under every strategy.
+    "strategy": "changesets",
+    "surfaces": [
+      { "kind": "cargo", "path": "Cargo.toml", "package": "@systemfsoftware/gritlint" },
+    ],
+  },
+  // An intent is required when a PR changes files of the published package.
+  // A change confined to crates/, apps/ or packs/ is caught by ci.yml's
+  // `changeset-intent` job instead, since turbo is not a tool this repository
+  // runs.
+  "gate": { "strategy": "paths" },
+  "pr": {
+    "title": "chore(release): version packages",
+    "body": "Consumes pending `.changeset/` intents.\n\nMerging tags the released versions and creates GitHub Releases.",
+  },
+}

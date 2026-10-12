@@ -80,6 +80,17 @@ jobs:
       - name: Benchmark against PR1
         if: matrix.system == 'x86_64-linux'
         run: tee -a "$GITHUB_STEP_SUMMARY" < "$(nix build --no-link --print-out-paths .#checks.x86_64-linux.gritlint-bench)/summary.md"
+      - name: The npm tarball rebuilds bit for bit
+        run: |
+          mkdir -p "$RUNNER_TEMP/release"
+          cp -L "$(nix build --no-link --rebuild --print-out-paths ".#packages.$SYSTEM.workspace-tarballs")"/* "$RUNNER_TEMP/release/"
+          cp -L "$(nix build --no-link --print-out-paths ".#packages.$SYSTEM.gritlint-binaries")"/* "$RUNNER_TEMP/release/"
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: release-${{ matrix.system }}
+          path: ${{ runner.temp }}/release/
+          if-no-files-found: error
+          retention-days: 1
 
       - name: Export the unsigned store paths
         if: steps.store-cache.outputs.cache-hit != 'true'
@@ -115,3 +126,63 @@ jobs:
           # The summary is the readable list; the annotations run gates the step.
           ./bin/gritlint check --format github-summary >> "$GITHUB_STEP_SUMMARY" || :
           ./bin/gritlint check --format github
+
+  # A consumer's lockfile records the tarball's integrity once, so both systems
+  # must build the same bytes. Each system cross-compiles the binary the other
+  # builds natively, so a match also compares native against cross.
+  tarballs-match:
+    name: Tarball and binaries match across systems
+    needs: nix
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
+        with:
+          pattern: release-*
+          path: release
+      - name: Every file is byte-identical to x86_64-linux's
+        run: |
+          set -euo pipefail
+          ref=release/release-x86_64-linux
+          other=release/release-aarch64-linux
+          status=0
+          files=$(ls -A "$ref" "$other" | awk '!/:$/ && NF' | sort -u)
+          [ -n "$files" ] || { echo "::error::no release artifact to compare"; exit 1; }
+          for file in $files; do
+            if [ ! -f "$ref/$file" ] || [ ! -f "$other/$file" ]; then
+              echo "::error::$file is in one system's release artifact only"
+              status=1
+              continue
+            fi
+            if cmp -s "$ref/$file" "$other/$file"; then continue; fi
+            status=1
+            echo "::error::aarch64-linux builds $file differently from x86_64-linux"
+            case "$file" in
+              *.tgz)
+                a="$(mktemp -d)" b="$(mktemp -d)"
+                tar -xzf "$ref/$file" -C "$a"
+                tar -xzf "$other/$file" -C "$b"
+                diff <(tar -tvzf "$ref/$file") <(tar -tvzf "$other/$file") || true
+                diff -r "$a" "$b" || true
+                ;;
+              gritlint-*)
+                echo "$({ cmp -l "$ref/$file" "$other/$file" || true; } | wc -l) bytes differ"
+                diff <(strings -n 8 "$ref/$file" | grep /nix/store/ | sort -u) <(strings -n 8 "$other/$file" | grep /nix/store/ | sort -u) || true
+                ;;
+            esac
+          done
+          exit "$status"
+
+  # A change to the CLI, the engine or the packs changes what the tarball
+  # reports, so it needs a changelog line even when npm/gritlint is untouched.
+  changeset-intent:
+    name: A change under crates, apps or packs adds an intent
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - run: sh scripts/tools/intent-gate.sh "${{ github.event.pull_request.base.sha }}" HEAD
