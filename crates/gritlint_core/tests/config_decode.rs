@@ -5,15 +5,11 @@ mod common;
 use gritlint_core::decode::{self, GritlintConfig};
 use gritlint_core::shell;
 use std::fs;
-use std::path::{Path, PathBuf};
-
-fn packs_dir() -> PathBuf {
-    common::bundled_packs_dir()
-}
+use std::path::Path;
 
 #[test]
 fn the_configuration_schema_is_the_committed_schema() {
-    let packs = common::packs_in(&packs_dir());
+    let packs = common::packs_in(&common::bundled_packs_dir());
     let schema = GritlintConfig::schema_for_packs(&packs);
     let rendered = format!(
         "{}\n",

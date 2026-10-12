@@ -40,7 +40,7 @@ pub fn plan(rules: &NonEmpty<CompiledRule>, files: &SelectedFiles) -> ScanPlan {
             let rule = compiled.rule();
             let key = rule.language().key();
             let batch: Vec<SelectedFile> = files.batch(key).cloned().collect();
-            let evaluation = match rule.kind() {
+            let evaluation = match compiled.kind() {
                 RuleKind::SingleFile => Evaluation::SingleFile { batch },
                 RuleKind::MultiFile => {
                     let mut input = batch;

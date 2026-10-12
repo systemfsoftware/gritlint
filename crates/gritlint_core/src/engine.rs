@@ -171,6 +171,11 @@ pub fn compile(request: &CompileRequest) -> Result<Compiled, EngineError> {
 
 impl Compiled {
     #[must_use]
+    pub fn is_multifile(&self) -> bool {
+        self.problem.is_multifile
+    }
+
+    #[must_use]
     pub fn execute(&self, files: Vec<InputFile>) -> EngineOutcome {
         let mut outcome = EngineOutcome {
             matches: Vec::new(),

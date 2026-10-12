@@ -537,7 +537,6 @@ pub struct ParsedRule {
     language: Language,
     targets: Vec<Regex>,
     params: BTreeMap<ParamName, String>,
-    kind: RuleKind,
     guidance: Arc<Guidance>,
     locate: Option<String>,
 }
@@ -555,7 +554,6 @@ impl ParsedRule {
         guidance: Guidance,
         locate: Option<String>,
     ) -> Self {
-        let kind = rule_kind(&body);
         Self {
             id,
             name,
@@ -565,7 +563,6 @@ impl ParsedRule {
             language,
             targets,
             params: BTreeMap::new(),
-            kind,
             guidance: Arc::new(guidance),
             locate,
         }
@@ -604,11 +601,6 @@ impl ParsedRule {
     #[must_use]
     pub fn targets(&self) -> &[Regex] {
         &self.targets
-    }
-
-    #[must_use]
-    pub fn kind(&self) -> RuleKind {
-        self.kind
     }
 
     #[must_use]
@@ -693,6 +685,15 @@ impl CompiledRule {
     #[must_use]
     pub fn compiled(&self) -> &crate::engine::Compiled {
         &self.compiled
+    }
+
+    #[must_use]
+    pub fn kind(&self) -> RuleKind {
+        if self.compiled.is_multifile() {
+            RuleKind::MultiFile
+        } else {
+            RuleKind::SingleFile
+        }
     }
 
     #[must_use]
@@ -1287,16 +1288,5 @@ impl FixtureLayout {
     #[must_use]
     pub(crate) fn new(units: Vec<FixtureUnit>) -> Self {
         Self { units }
-    }
-}
-
-fn rule_kind(body: &str) -> RuleKind {
-    let first = body.lines().map(str::trim).find(|line| {
-        !line.is_empty() && !line.starts_with("language") && !line.starts_with("engine")
-    });
-    if first.is_some_and(|line| line.starts_with("multifile")) {
-        RuleKind::MultiFile
-    } else {
-        RuleKind::SingleFile
     }
 }

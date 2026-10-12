@@ -1,4 +1,4 @@
-use crate::domain::{ExportReason, ExportRefusal, ParsedRule};
+use crate::domain::{CompiledRule, ExportReason, ExportRefusal, ParsedRule, RuleKind};
 use grit_util::{Ast as _, AstNode as _, Order, traverse};
 use marzano_language::grit_parser::MarzanoGritParser;
 use marzano_language::language::Tree;
@@ -11,11 +11,11 @@ const JS_FLAVORS: [&str; 2] = ["typescript", "jsx"];
 const WRAPPER: &str = "gritlint_exported_rule";
 const MATCH: &str = "$gritlint_match";
 
-pub fn find<'a>(rules: &[&'a ParsedRule], id: &str) -> Result<&'a ParsedRule, ExportRefusal> {
+pub fn find<'a>(rules: &[&'a CompiledRule], id: &str) -> Result<&'a CompiledRule, ExportRefusal> {
     rules
         .iter()
         .copied()
-        .find(|rule| rule.id().as_string() == id)
+        .find(|compiled| compiled.rule().id().as_string() == id)
         .ok_or_else(|| {
             ExportRefusal::new(
                 id.to_owned(),
@@ -26,10 +26,18 @@ pub fn find<'a>(rules: &[&'a ParsedRule], id: &str) -> Result<&'a ParsedRule, Ex
         })
 }
 
-pub fn biome(rule: &ParsedRule, all: &[&ParsedRule]) -> Result<String, ExportRefusal> {
+pub fn biome(compiled: &CompiledRule, all: &[&CompiledRule]) -> Result<String, ExportRefusal> {
+    let rule = compiled.rule();
     let refuse = |reason, detail: String, next_action| {
         ExportRefusal::new(rule.id().as_string(), reason, detail, next_action)
     };
+    if compiled.kind() == RuleKind::MultiFile {
+        return Err(refuse(
+            ExportReason::Multifile,
+            "the rule is multifile, and a Biome plugin sees one file at a time.".to_owned(),
+            "keep this rule in `gritlint check`; only a single-file rule exports.",
+        ));
+    }
     let root = parse(rule.body()).map_err(|error| {
         refuse(
             ExportReason::Construct,
@@ -38,13 +46,6 @@ pub fn biome(rule: &ParsedRule, all: &[&ParsedRule]) -> Result<String, ExportRef
         )
     })?;
     let body = Body::read(&root.root_node());
-    if body.multifile {
-        return Err(refuse(
-            ExportReason::Multifile,
-            "the rule is multifile, and a Biome plugin sees one file at a time.".to_owned(),
-            "keep this rule in `gritlint check`; only a single-file rule exports.",
-        ));
-    }
     if let Some(language) = body.unsupported_language() {
         return Err(refuse(
             ExportReason::Language,
@@ -69,16 +70,25 @@ pub fn biome(rule: &ParsedRule, all: &[&ParsedRule]) -> Result<String, ExportRef
         ));
     }
     let scope = rule.id().scope();
-    let siblings: BTreeSet<String> = all
+    let siblings = all
         .iter()
+        .map(|other| other.rule())
         .filter(|other| other.id() != rule.id() && other.id().scope() == scope)
-        .flat_map(|other| {
-            let defined = parse(other.body())
-                .map(|tree| Body::read(&tree.root_node()).defined)
-                .unwrap_or_default();
-            std::iter::once(other.name().as_str().to_owned()).chain(defined)
-        })
-        .collect();
+        .try_fold(BTreeSet::new(), |mut names, other| {
+            let tree = parse(other.body()).map_err(|error| {
+                refuse(
+                    ExportReason::Construct,
+                    format!(
+                        "`{}`, another rule of its pack, does not parse as GritQL: {error}.",
+                        other.id()
+                    ),
+                    "report that rule to gritlint; `gritlint check` compiled it.",
+                )
+            })?;
+            names.insert(other.name().as_str().to_owned());
+            names.extend(Body::read(&tree.root_node()).defined);
+            Ok(names)
+        })?;
     if let Some(called) = body
         .calls
         .difference(&body.defined)
@@ -96,15 +106,15 @@ pub fn biome(rule: &ParsedRule, all: &[&ParsedRule]) -> Result<String, ExportRef
 }
 
 #[must_use]
-pub fn listing(rules: &[&ParsedRule]) -> String {
-    let mut sorted: Vec<&ParsedRule> = rules.to_vec();
-    sorted.sort_by_cached_key(|rule| rule.id().as_string());
-    sorted.iter().fold(String::new(), |mut out, rule| {
-        let line = match biome(rule, rules) {
-            Ok(_) => format!("{} exportable", rule.id()),
+pub fn listing(rules: &[&CompiledRule]) -> String {
+    let mut sorted: Vec<&CompiledRule> = rules.to_vec();
+    sorted.sort_by_cached_key(|compiled| compiled.rule().id().as_string());
+    sorted.iter().fold(String::new(), |mut out, compiled| {
+        let line = match biome(compiled, rules) {
+            Ok(_) => format!("{} exportable", compiled.rule().id()),
             Err(refusal) => format!(
                 "{} refused {}: {}",
-                rule.id(),
+                compiled.rule().id(),
                 refusal.reason().code(),
                 refusal.next_action()
             ),
@@ -121,7 +131,6 @@ struct Body {
     flavors: Vec<String>,
     definitions: Vec<String>,
     pattern: String,
-    multifile: bool,
     foreign_function: bool,
     rewrite: bool,
     calls: BTreeSet<String>,
@@ -154,7 +163,6 @@ impl Body {
 
     fn visit(&mut self, node: &NodeWithSource<'_>) {
         match node.node.kind().as_ref() {
-            "files" => self.multifile = true,
             "foreignFunctionDefinition" => self.foreign_function = true,
             "rewrite" | "predicateRewrite" => self.rewrite = true,
             "nodeLike" | "predicateCall" => {

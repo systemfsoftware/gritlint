@@ -53,5 +53,5 @@ Compare the outputs of two different build hosts, not two builds on one host. A 
 
 ## Related Issues
 
-- `docs/plans/2026-10-11-2312-feat-gritlint-standalone-plan.md` R29, KTD32, KTD38
+- `docs/plans/2026-10-12-2025-feat-gritlint-standalone-plan.md` R29, KTD32, KTD38
 - `docs/solutions/logic-errors/flake-sandbox-check-compared-two-builds-of-one-file.md`

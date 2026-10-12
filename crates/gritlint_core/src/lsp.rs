@@ -1,7 +1,7 @@
-use crate::decide;
 use crate::domain::{Finding, Outcome, Pack, RelPath, SelectedFiles, Sources};
 use crate::error::{GritlintError, TargetReason};
 use crate::workspace::{Workspace, WorkspaceInputs};
+use crate::{decide, encode};
 use lsp_server::{Connection, Message, Notification, Request, RequestId, Response};
 use lsp_types::notification::{
     DidChangeTextDocument, DidCloseTextDocument, DidOpenTextDocument, DidSaveTextDocument, Exit,
@@ -399,8 +399,9 @@ impl Server<'_> {
     ) -> Result<(Outcome, Vec<Refusal>), GritlintError> {
         let mut refusals = Vec::new();
         let mut needed = decide::sources_needed(&plan);
+        let sources = self.sources(&needed, open)?;
         loop {
-            let error = match decide::scan(&plan, &self.sources(&needed, open)?) {
+            let error = match decide::scan(&plan, &sources) {
                 Ok(outcome) => return Ok((outcome, refusals)),
                 Err(error) => error,
             };
@@ -483,11 +484,7 @@ impl Server<'_> {
         diagnostic(
             range,
             finding.guidance().reason_code().as_str(),
-            format!(
-                "{}\n{}",
-                finding.message(),
-                finding.guidance().next_action()
-            ),
+            encode::message_and_next_action(finding),
         )
     }
 

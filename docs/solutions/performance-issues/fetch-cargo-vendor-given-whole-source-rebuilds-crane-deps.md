@@ -58,5 +58,5 @@ Nix derivation hashes cover every input path. A wider `src` makes any file in it
 
 ## Related Issues
 
-- `docs/plans/2026-10-11-2312-feat-gritlint-standalone-plan.md` R12, KTD10, KTD13, U5
+- `docs/plans/2026-10-12-2025-feat-gritlint-standalone-plan.md` R12, KTD10, KTD13, U5
 - [fixed-output-cargo-vendor-hash-covers-workspace-versions.md](../build-errors/fixed-output-cargo-vendor-hash-covers-workspace-versions.md)

@@ -2,7 +2,8 @@
 "@systemfsoftware/gritlint": minor
 ---
 
-gritlint gains two subcommands.
+gritlint gains `gritlint lsp` and `gritlint export biome`, and `gritlint check` recognizes every multifile rule.
 
-- `gritlint lsp` reports rule violations to an editor over the Language Server Protocol on stdio: one error diagnostic per violation in each open document, computed from its unsaved text, multifile rules included. It loads exactly what `gritlint check` loads from the directory it starts in (or ROOT), refuses `initialize` with `check`'s text when `check` would refuse, and reports a file the engine cannot scan as a diagnostic instead of stopping.
-- `gritlint export biome` lists which enabled rules export as Biome GritQL plugins and, with `--rule <ruleId>`, prints one on stdout. Only single-file `css`, `json` and `js` rules export; every bundled rule is multifile and lists as `refused export-multifile`. Plugins are verified in gritlint's own engine, not in Biome.
+- `gritlint lsp` serves one error diagnostic per violation in each open document over the Language Server Protocol on stdio, computed from its unsaved text. It loads what `gritlint check` loads, refuses `initialize` with `check`'s text when `check` would refuse, and reports a file the engine cannot scan as a diagnostic.
+- `gritlint export biome` lists which enabled rules export as Biome GritQL plugins; `--rule <ruleId>` prints one. Only single-file `css`, `json` and `js` rules export, so every bundled rule lists as `refused export-multifile`. Plugins are verified in gritlint's engine, not in Biome.
+- `gritlint check` runs a rule whose `multifile` block follows a comment or definition per directory, like every multifile rule, instead of over every file of its language at once.

@@ -270,15 +270,20 @@ pub fn render_github(outcome: &Outcome) -> String {
             format!(
                 "::error {}::{}\n",
                 properties.join(","),
-                escape_data(&format!(
-                    "{}\n{}",
-                    finding.message(),
-                    finding.guidance().next_action()
-                ))
+                escape_data(&message_and_next_action(finding))
             )
         })
         .collect::<Vec<_>>()
         .concat()
+}
+
+#[must_use]
+pub fn message_and_next_action(finding: &Finding) -> String {
+    format!(
+        "{}\n{}",
+        finding.message(),
+        finding.guidance().next_action()
+    )
 }
 
 #[must_use]

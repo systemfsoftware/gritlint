@@ -4,7 +4,7 @@ mod common;
 
 use common::packs_in;
 use gritlint_core::decide;
-use gritlint_core::domain::{CompiledRule, Language, NonEmpty, ParsedRule};
+use gritlint_core::domain::{CompiledRule, Language, NonEmpty};
 use gritlint_core::engine::{self, CompileRequest, InputFile, MatchRange};
 use gritlint_core::export;
 use gritlint_core::shell;
@@ -36,11 +36,11 @@ fn fixture_workspace() -> Workspace {
     load("gritlint.json", &fixtures().join("packs"), "tree")
 }
 
-fn rules(workspace: &Workspace) -> Vec<&ParsedRule> {
-    workspace.rules().iter().map(CompiledRule::rule).collect()
+fn rules(workspace: &Workspace) -> Vec<&CompiledRule> {
+    workspace.rules().iter().collect()
 }
 
-fn exported(rules: &[&ParsedRule], id: &str) -> Result<String, (&'static str, String)> {
+fn exported(rules: &[&CompiledRule], id: &str) -> Result<String, (&'static str, String)> {
     export::find(rules, id)
         .and_then(|rule| export::biome(rule, rules))
         .map_err(|refusal| (refusal.reason().code(), refusal.to_string()))

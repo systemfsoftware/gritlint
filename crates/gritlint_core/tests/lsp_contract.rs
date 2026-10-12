@@ -622,6 +622,63 @@ fn a_missing_root_initializes_and_publishes_empty_sets_as_check_selects_nothing(
     assert_eq!(session.shutdown(), Ending::Shutdown);
 }
 
+#[test]
+fn two_open_documents_that_do_not_parse_each_get_their_own_refusal_in_one_event() {
+    let temp = tempfile::tempdir().expect("temp dir");
+    let root = fs::canonicalize(temp.path()).expect("canonical temp dir");
+    fs::create_dir(root.join("a")).expect("create a/");
+    let package = root.join("a/package.json");
+    let licensed = "{\n  \"license\": \"UNLICENSED\"\n}\n";
+    fs::write(&package, licensed).expect("write a/package.json");
+    let (x, y) = (root.join("a/x.json"), root.join("a/y.json"));
+    let broken = "{\n  \"a\": ,\n}\n";
+    fs::write(&x, broken).expect("write a/x.json");
+    fs::write(&y, broken).expect("write a/y.json");
+    let session = Session::at(root, &["license", "directory-read"], Vec::new());
+    assert_eq!(
+        session
+            .initialize(&["utf-8"])
+            .err()
+            .map(|error| error.message),
+        None
+    );
+
+    session.open(&package, licensed);
+    session.published();
+    session.open(&x, broken);
+    session.open(&y, broken);
+    let published = session.published_for(&[&package, &x, &y]);
+
+    assert_only_its_own_refusal(&published, &x);
+    assert_only_its_own_refusal(&published, &y);
+    assert_eq!(
+        summary(published.get(&uri(&package)).expect("a/package.json"))
+            .into_iter()
+            .map(|(code, _)| code)
+            .collect::<Vec<_>>(),
+        vec!["unlicensed".to_owned(), "target-does-not-parse".to_owned()]
+    );
+
+    assert_eq!(session.shutdown(), Ending::Shutdown);
+}
+
+fn assert_only_its_own_refusal(published: &BTreeMap<String, Vec<Diagnostic>>, path: &Path) {
+    let own = published.get(&uri(path)).expect("a broken document");
+    assert_eq!(own.len(), 1, "{}: {own:?}", path.display());
+    let refusal = own.first().expect("its own refusal");
+    assert_eq!(
+        refusal.code,
+        Some(NumberOrString::String("target-does-not-parse".to_owned()))
+    );
+    assert_eq!(
+        stated_position(&refusal.message),
+        vec![
+            refusal.range.start.line + 1,
+            refusal.range.start.character + 1
+        ]
+    );
+}
+
 fn stated_position(message: &str) -> Vec<u32> {
     message
         .split(':')

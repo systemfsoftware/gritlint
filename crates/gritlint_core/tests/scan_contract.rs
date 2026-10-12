@@ -811,6 +811,32 @@ fn a_plan_restricted_to_one_open_file_finds_what_the_full_scan_finds_for_its_dir
 }
 
 #[test]
+fn a_multifile_block_after_a_comment_is_planned_per_directory_and_kept_whole_for_an_open_file() {
+    let temp = two_directories();
+    let commented = SIBLING_JOIN.replacen(
+        "language json\n",
+        "language json\n// A tsconfig is read with the package.json beside it.\n",
+        1,
+    );
+    let rules = [rule("sibling-join", &commented)];
+    let full = plan(temp.path(), &rules, &[]).expect("plan");
+
+    let restricted = decide::restrict(full.clone(), &open(&["a/package.json"]));
+
+    assert_eq!(
+        located(&restricted, temp.path()),
+        vec!["local/sibling-join a/package.json"]
+    );
+    assert_eq!(
+        located(&full, temp.path())
+            .into_iter()
+            .filter(|line| line.contains(" a/"))
+            .collect::<Vec<_>>(),
+        located(&restricted, temp.path())
+    );
+}
+
+#[test]
 fn a_plan_without_a_file_drops_its_single_file_entry_and_every_directory_batch_holding_it() {
     let temp = two_directories();
     let rules = [

@@ -1,6 +1,6 @@
 use clap::{Args, Parser, Subcommand, ValueEnum};
 use gritlint_core::decode::{self, GritlintConfig};
-use gritlint_core::domain::{CompiledRule, EmbeddedFile, Pack, ParsedRule, Verdict};
+use gritlint_core::domain::{CompiledRule, EmbeddedFile, Pack, Verdict};
 use gritlint_core::error::GritlintError;
 use gritlint_core::workspace::WorkspaceInputs;
 use gritlint_core::{decide, encode, export, lsp, shell};
@@ -151,7 +151,7 @@ fn lsp(args: &InputArgs) -> Result<ExitCode, GritlintError> {
 
 fn export_biome(args: &ExportBiomeArgs) -> Result<ExitCode, GritlintError> {
     let workspace = shell::load_workspace(&args.inputs.workspace(), &embedded_packs()?)?;
-    let rules: Vec<&ParsedRule> = workspace.rules().iter().map(CompiledRule::rule).collect();
+    let rules: Vec<&CompiledRule> = workspace.rules().iter().collect();
     let text = match &args.rule {
         None => export::listing(&rules),
         Some(id) => export::find(&rules, id)
