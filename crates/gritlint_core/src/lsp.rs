@@ -307,7 +307,7 @@ impl Server<'_> {
     }
 
     fn publish(&self) {
-        let mut diagnostics = match self.diagnose() {
+        let diagnostics = match self.diagnose() {
             Ok(diagnostics) => diagnostics,
             Err(error) => {
                 self.log(&error);
@@ -318,7 +318,7 @@ impl Server<'_> {
             let found = document
                 .path
                 .as_ref()
-                .and_then(|path| diagnostics.remove(path))
+                .and_then(|path| diagnostics.get(path).cloned())
                 .unwrap_or_default();
             self.send_diagnostics(uri.clone(), found);
         }

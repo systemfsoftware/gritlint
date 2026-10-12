@@ -3,6 +3,7 @@
     reason = "the journey is the consumer: it writes the tree it scans"
 )]
 
+mod export;
 mod lsp;
 use serde_json::Value;
 use std::collections::BTreeSet;
@@ -139,6 +140,7 @@ fn journey() -> Result<(), String> {
         return Err(format!("expected findings {expected:?}, read {seen:?}"));
     }
     lsp::journey(gritlint, root, &first.findings)?;
+    export::journey(gritlint, root)?;
     let edits = first
         .findings
         .iter()

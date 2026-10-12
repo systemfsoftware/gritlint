@@ -248,6 +248,71 @@ fn fixing_the_buffer_or_closing_it_publishes_an_empty_set() {
 }
 
 #[test]
+fn saving_publishes_the_buffer_and_documents_outside_the_root_get_an_empty_set() {
+    let (session, document) = single_session();
+    let bad = "{\n  \"license\": \"UNLICENSED\"\n}\n";
+    let outside = fixture("lsp/empty/package.json");
+
+    session.open(&document, bad);
+    assert_eq!(summary(&session.published().diagnostics).len(), 1);
+    session.notify(
+        "textDocument/didSave",
+        json!({ "textDocument": { "uri": uri(&document) } }),
+    );
+    assert_eq!(
+        summary(&session.published().diagnostics),
+        vec![("unlicensed".to_owned(), (1, 2, 1, 25))]
+    );
+
+    session.open(&outside, bad);
+    session.notify(
+        "textDocument/didOpen",
+        json!({ "textDocument": { "uri": "untitled:Untitled-1", "languageId": "json", "version": 1, "text": bad } }),
+    );
+    let mut published = session.published_for(&[&document, &outside]);
+    while !published.contains_key("untitled:Untitled-1") {
+        let next = session.published();
+        published.insert(next.uri.as_str().to_owned(), next.diagnostics);
+    }
+    let counts: BTreeMap<String, usize> = published
+        .into_iter()
+        .map(|(uri, diagnostics)| (uri, diagnostics.len()))
+        .collect();
+    assert_eq!(
+        counts,
+        BTreeMap::from([
+            (uri(&document), 1),
+            (uri(&outside), 0),
+            ("untitled:Untitled-1".to_owned(), 0),
+        ])
+    );
+
+    assert_eq!(session.shutdown(), Ending::Shutdown);
+}
+
+#[test]
+fn two_uris_for_one_file_both_get_its_diagnostics() {
+    let (session, document) = single_session();
+    let links = tempfile::tempdir().expect("temp dir");
+    let link = links.path().join("single");
+    std::os::unix::fs::symlink(fixture("lsp/single"), &link).expect("symlink the root");
+    let alias = link.join("package.json");
+    let bad = "{\n  \"license\": \"UNLICENSED\"\n}\n";
+
+    session.open(&document, bad);
+    session.open(&alias, bad);
+    let mut published = session.published_for(&[&document, &alias]);
+    while published.values().any(Vec::is_empty) {
+        let next = session.published();
+        published.insert(next.uri.as_str().to_owned(), next.diagnostics);
+    }
+    let counts: Vec<usize> = published.values().map(Vec::len).collect();
+    assert_eq!(counts, vec![1, 1]);
+
+    assert_eq!(session.shutdown(), Ending::Shutdown);
+}
+
+#[test]
 fn a_bundled_multifile_rule_reports_in_the_open_buffer() {
     let session = Session::start(
         "../../../../packs/npm-provenance/fixtures/repository-url/bad/other-repository",
@@ -277,6 +342,12 @@ fn a_bundled_multifile_rule_reports_in_the_open_buffer() {
         &text.replace("acme/other.git", "acme/widgets.git"),
     );
     assert_eq!(summary(&session.published().diagnostics), Vec::new());
+
+    session.change(&document, &text.replace("\"repository\"", "\"homepage\""));
+    assert_eq!(
+        summary(&session.published().diagnostics),
+        vec![("repository-url-mismatch".to_owned(), (0, 0, 0, 0))]
+    );
 
     assert_eq!(session.shutdown(), Ending::Shutdown);
 }
