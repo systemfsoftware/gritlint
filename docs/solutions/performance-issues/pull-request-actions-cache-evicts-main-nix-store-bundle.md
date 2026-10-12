@@ -79,7 +79,7 @@ GitHub's [dependency caching reference](https://docs.github.com/en/actions/refer
   - wrong: `if: steps.store-cache.outputs.cache-hit != 'true'` on a save step.
   - right: `if: github.ref == format('refs/heads/{0}', github.event.repository.default_branch) && steps.store-cache.outputs.cache-hit != 'true'`.
 - When CI slows down, list the cache entries by ref: `gh api 'repos/systemfsoftware/gritlint/actions/caches?per_page=100' --jq '.actions_caches[] | [.ref, .key, .size_in_bytes, .last_accessed_at] | @tsv'`. Entries on any ref other than `refs/heads/main` that are newer than the change mean a writer escaped the guard. Older ones are legacy entries; `gh cache delete <id>` removes them and needs `actions: write`.
-- The bundle is not permanent. GitHub deletes an entry nobody has accessed for 7 days. A pull request restore counts as an access: the caches API moved `main`'s x86_64 entry's `last_accessed_at` to the minute a pull request job restored it. So this happens only after a week with no CI run at all. The next `main` push, or a `workflow_dispatch` on `main`, reseeds it, and until then pull requests build cold.
+- The bundle is not permanent. GitHub deletes an entry nobody has accessed for 7 days. A pull request restore counts as an access: #17's pull request jobs restored `main`'s two entries at 16:37:36Z and 16:38:12Z on 2026-10-12, and the caches API then reported their `last_accessed_at` as 16:39:05Z and 16:38:59Z. So this happens only after a week with no CI run at all. The next `main` push, or a `workflow_dispatch` on `main`, reseeds it, and until then pull requests build cold.
 
 ## Related Issues
 
