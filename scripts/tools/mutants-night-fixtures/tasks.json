@@ -1,0 +1,10 @@
+[
+ {
+  "number": 7,
+  "body": "<!-- mutants-night-task -->\r\nMutants night ...\r\n<!-- items\r\nsrc/a.rs:3:1: replace x -> bool with true\r\nsrc/a.rs:4:1: gone mutant\r\nsrc/a.rs:5:1: untested mutant\r\nfailure: plan\r\n-->"
+ },
+ {
+  "number": 8,
+  "body": "<!-- mutants-night-task -->\n<!-- items\nsrc/b.rs:9:9: other\n-->"
+ }
+]

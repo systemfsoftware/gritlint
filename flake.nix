@@ -69,6 +69,13 @@
           own = {
             inherit gritlint-unwrapped gritlint-binaries;
             gritlint = pkgs.callPackage ./nix/gritlint-sandbox.nix { gritlint = gritlint-unwrapped; };
+            # mutants.yml's tools without a dev shell: the toolchain the build
+            # uses, cargo-mutants from the locked nixpkgs, a C compiler for the
+            # grammars, and jq for the plan.
+            gritlint-mutants-tools = pkgs.buildEnv {
+              name = "gritlint-mutants-tools";
+              paths = [ (rust pkgs) pkgs.cargo-mutants pkgs.stdenv.cc pkgs.jq ];
+            };
           };
           workspace = pnpm-release-management.lib.mkPnpmWorkspacePackages {
             inherit pkgs;
@@ -131,11 +138,12 @@
               [ "$("$bin" --version)" = "gritlint ${gritlintVersion}" ]
               touch $out
             '';
-            # mutants.yml's mode, shard and resume decisions, from fixture JSON and a scratch git history.
+            # mutants.yml's guard, scope, sizing and night decisions, from fixture JSON and a scratch git history.
             gritlint-mutants-plan = pkgs.runCommand "gritlint-mutants-plan" {
               nativeBuildInputs = [ pkgs.git pkgs.jq ];
             } ''
               bash ${./scripts/tools}/mutants-plan.test.sh
+              bash ${./scripts/tools}/mutants-night.test.sh
               touch $out
             '';
             # A consumer's offline install of the npm tarball (R22, R23).
