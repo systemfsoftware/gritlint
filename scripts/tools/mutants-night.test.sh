@@ -132,6 +132,14 @@ expect "task body: a filed task is found again and the next night routes its ite
   "$(jq -cn --arg shown "$shown" '{update: [{number: 12, shown: [$shown, "failure: shard"], gone: []}], file: []}')" \
   sh -c '"$@" | jq -c .' - "${night[@]}" route "$work/record-filed.json" "$work/tasks-filed.json" "$work/absent.txt"
 
+base=$tip base_record=$fixtures/record-green.json decide "$work/planned-three.txt" "$red_tested" "$red_carried" \
+  "$fixtures/needs-green.json" > "$work/record-decided.json"
+lines "$m1" "$m2" "$m3" > "$work/all-three.txt"
+echo '[]' > "$work/tasks-none.json"
+expect "route: a verdict's own record files its new survivor" \
+  "$(jq -cn --arg m2 "$m2" '{update: [], file: [$m2]}')" \
+  sh -c '"$@" | jq -c .' - "${night[@]}" route "$work/record-decided.json" "$work/tasks-none.json" "$work/all-three.txt"
+
 if [ "$failures" -ne 0 ]; then
   echo "$failures failed" >&2
   exit 1
