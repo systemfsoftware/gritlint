@@ -88,7 +88,7 @@ expect "mode: a night with no green night runs everything" \
 expect "mode: a night whose green night is not an ancestor runs everything" \
   "$(lines mode=full base= "reason=green night $D is not an ancestor of $H_rs")" in_repo mode schedule "$D" "$H_rs"
 for input in .cargo/mutants.toml .github/workflows/mutants.yml scripts/tools/mutants-plan.sh \
-  scripts/tools/mutants-night.sh flake.lock; do
+  scripts/tools/mutants-night.sh flake.lock flake.nix rust-toolchain.toml; do
   H=$(head_after input "$input")
   expect "mode: a night after $input changed runs everything" \
     "$(lines mode=full base= "reason=$input changed since green night $A")" in_repo mode schedule "$A" "$H"

@@ -122,7 +122,7 @@ task_body() {
     | $marker,
       "Mutants night [\($r.night)](https://github.com/\($repo)/actions/runs/\($r.night)) at `\($r.sha)` is red.",
       "",
-      "**Range:** \(if $r.base then "`\($r.base)`..`\($r.sha)` (from green night \($r.base_night))" else "no green night yet, so the newest \($merges[0] | length) first-parent commits to `\($r.sha)`" end). **Scope:** \($r.mode) (\($r.reason)).",
+      "**Range:** \(if $r.base then "`\($r.base)`..`\($r.sha)` (from green night \($r.base_night))" else "no green night yet, so only the newest \($merges[0] | length) first-parent commits to `\($r.sha)` are named and older merges are not" end). **Scope:** \($r.mode) (\($r.reason)).",
       "",
       "**Survivors and failures:**",
       "",

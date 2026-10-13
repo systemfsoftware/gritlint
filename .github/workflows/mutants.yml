@@ -104,6 +104,8 @@ jobs:
       mode: ${{ steps.scope.outputs.mode }}
       base: ${{ steps.scope.outputs.base }}
       reason: ${{ steps.scope.outputs.reason }}
+      green: ${{ steps.scope.outputs.green }}
+      green-night: ${{ steps.scope.outputs.green-night }}
     steps:
       - id: start
         run: echo "JOB_START=$(date +%s)" >> "$GITHUB_ENV"
@@ -159,6 +161,7 @@ jobs:
               green=$($NIGHT green-record "$out/$id/record.json" "$id")
               if [ -n "$green" ]; then
                 cp "$out/$id/record.json" "$GITHUB_WORKSPACE/plan/green-record.json"
+                printf 'green=%s\ngreen-night=%s\n' "$green" "$id" >> "$GITHUB_OUTPUT"
                 break
               fi
             done
@@ -426,13 +429,17 @@ jobs:
           NEEDS: ${{ toJSON(needs) }}
           MODE: ${{ needs.plan.outputs.mode }}
           REASON: ${{ needs.plan.outputs.reason }}
+          GREEN: ${{ needs.plan.outputs.green }}
+          GREEN_NIGHT: ${{ needs.plan.outputs.green-night }}
         run: |
           printf '%s' "$NEEDS" > "$RUNNER_TEMP/needs.json"
-          green=""
+          green=$GREEN
           base_record=/dev/null
           if [ -f plan/green-record.json ]; then
             base_record=plan/green-record.json
-            green=$(jq -r .sha "$base_record")
+          elif [ -n "$green" ]; then
+            jq -n --arg sha "$green" --argjson night "$GREEN_NIGHT" '{night: $night, sha: $sha}' > "$RUNNER_TEMP/green-record.json"
+            base_record=$RUNNER_TEMP/green-record.json
           fi
           mkdir -p night
           $NIGHT verdict "$GITHUB_RUN_ID" "$GITHUB_RUN_ATTEMPT" "$TARGET" "$green" "$base_record" "${MODE:-unplanned}" \
