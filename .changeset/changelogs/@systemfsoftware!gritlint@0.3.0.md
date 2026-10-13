@@ -1,6 +1,4 @@
----
-"@systemfsoftware/gritlint": minor
----
+# @systemfsoftware/gritlint@0.3.0
 
 gritlint gains `gritlint lsp` and `gritlint export biome`, and `gritlint check` recognizes every multifile rule.
 
