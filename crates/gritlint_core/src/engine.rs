@@ -171,6 +171,11 @@ pub fn compile(request: &CompileRequest) -> Result<Compiled, EngineError> {
 
 impl Compiled {
     #[must_use]
+    pub fn is_multifile(&self) -> bool {
+        self.problem.is_multifile
+    }
+
+    #[must_use]
     pub fn execute(&self, files: Vec<InputFile>) -> EngineOutcome {
         let mut outcome = EngineOutcome {
             matches: Vec::new(),
@@ -251,11 +256,16 @@ fn build_library(request: &CompileRequest) -> Result<BTreeMap<String, String>, E
     for (name, value) in &request.parameters {
         library.insert(
             format!("{PARAMETER_FILE_PREFIX}{name}.grit"),
-            format!("pattern {name}() {{ {value} }}"),
+            parameter_definition(name, value),
         );
     }
 
     Ok(library)
+}
+
+#[must_use]
+pub fn parameter_definition(name: &str, value: &str) -> String {
+    format!("pattern {name}() {{ {value} }}")
 }
 
 fn match_range(range: &EngineRange) -> MatchRange {

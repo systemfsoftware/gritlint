@@ -1,0 +1,11 @@
+language json
+
+pattern forbiddenLicense() { `"UNLICENSED"` }
+
+pattern gritlint_exported_rule() {
+  `"license": $value` where { $value <: forbiddenLicense() }
+}
+
+gritlint_exported_rule() as $gritlint_match where {
+  register_diagnostic(span = $gritlint_match, message = "A package does not use a \"forbidden\" license.\nThe pack names the license it forbids.", severity = "error")
+}

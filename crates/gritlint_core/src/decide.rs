@@ -8,7 +8,7 @@ use crate::engine::{DiagnosticKind, EngineDiagnostic, EngineMatch, EngineOutcome
 use crate::error::GritlintError;
 use rayon::prelude::*;
 use regex::Regex;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 use std::sync::LazyLock;
 
@@ -40,19 +40,13 @@ pub fn plan(rules: &NonEmpty<CompiledRule>, files: &SelectedFiles) -> ScanPlan {
             let rule = compiled.rule();
             let key = rule.language().key();
             let batch: Vec<SelectedFile> = files.batch(key).cloned().collect();
-            let evaluation = match rule.kind() {
+            let evaluation = match compiled.kind() {
                 RuleKind::SingleFile => Evaluation::SingleFile { batch },
                 RuleKind::MultiFile => {
                     let mut input = batch;
                     input.extend(participants(rule, files, key));
-                    let directories = partition_multifile(rule, &input);
-                    let evaluated = directories
-                        .iter()
-                        .map(|directory| directory.files().len())
-                        .sum();
                     Evaluation::MultiFile {
-                        directories,
-                        evaluated,
+                        directories: partition_multifile(rule, &input),
                     }
                 }
             };
@@ -82,6 +76,73 @@ pub fn partition_multifile(rule: &ParsedRule, batch: &[SelectedFile]) -> Vec<Dir
         )
         .into_iter()
         .map(|(directory, files)| DirectoryBatch { directory, files })
+        .collect()
+}
+
+#[must_use]
+pub fn restrict(plan: ScanPlan, open: &BTreeSet<RelPath>) -> ScanPlan {
+    narrow(
+        plan,
+        |path| open.contains(path),
+        |files| files.iter().any(|file| open.contains(file.path())),
+    )
+}
+
+#[must_use]
+pub fn without(plan: ScanPlan, refused: &RelPath) -> ScanPlan {
+    narrow(
+        plan,
+        |path| path != refused,
+        |files| files.iter().all(|file| file.path() != refused),
+    )
+}
+
+fn narrow(
+    plan: ScanPlan,
+    keep_file: impl Fn(&RelPath) -> bool,
+    keep_batch: impl Fn(&[SelectedFile]) -> bool,
+) -> ScanPlan {
+    let files_selected = plan.files_selected;
+    let steps = plan
+        .steps
+        .into_iter()
+        .map(|step| {
+            let evaluation = match step.evaluation {
+                Evaluation::SingleFile { batch } => Evaluation::SingleFile {
+                    batch: batch
+                        .into_iter()
+                        .filter(|file| keep_file(file.path()))
+                        .collect(),
+                },
+                Evaluation::MultiFile { directories } => Evaluation::MultiFile {
+                    directories: directories
+                        .into_iter()
+                        .filter(|directory| keep_batch(directory.files()))
+                        .collect(),
+                },
+            };
+            RuleStep {
+                rule: step.rule,
+                evaluation,
+            }
+        })
+        .collect();
+    ScanPlan::new(steps, files_selected)
+}
+
+#[must_use]
+pub fn batch_mates(plan: &ScanPlan, file: &RelPath) -> BTreeSet<RelPath> {
+    plan.steps
+        .iter()
+        .filter_map(|step| match &step.evaluation {
+            Evaluation::MultiFile { directories } => Some(directories),
+            Evaluation::SingleFile { .. } => None,
+        })
+        .flatten()
+        .filter(|batch| batch.files().iter().any(|member| member.path() == file))
+        .flat_map(|batch| batch.files().iter().map(SelectedFile::path))
+        .filter(|path| *path != file)
+        .cloned()
         .collect()
 }
 
@@ -303,7 +364,7 @@ fn tasks_of(step: &RuleStep) -> Vec<Task<'_>> {
     let rule = &step.rule;
     match &step.evaluation {
         Evaluation::SingleFile { batch } => vec![Task::Single { rule, batch }],
-        Evaluation::MultiFile { directories, .. } => directories
+        Evaluation::MultiFile { directories } => directories
             .iter()
             .map(|directory| Task::Directory { rule, directory })
             .collect(),
@@ -313,7 +374,10 @@ fn tasks_of(step: &RuleStep) -> Vec<Task<'_>> {
 fn count_of(step: &RuleStep) -> RuleCount {
     let evaluated = match &step.evaluation {
         Evaluation::SingleFile { batch } => batch.len(),
-        Evaluation::MultiFile { evaluated, .. } => *evaluated,
+        Evaluation::MultiFile { directories } => directories
+            .iter()
+            .map(|directory| directory.files().len())
+            .sum(),
     };
     RuleCount::new(step.rule.rule().id().clone(), evaluated)
 }

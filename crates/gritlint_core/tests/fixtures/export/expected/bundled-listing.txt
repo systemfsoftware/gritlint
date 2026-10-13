@@ -1,0 +1,15 @@
+cell-architecture/service-exports-no-layer refused export-multifile: keep this rule in `gritlint check`; only a single-file rule exports.
+npm-provenance/provenance refused export-multifile: keep this rule in `gritlint check`; only a single-file rule exports.
+npm-provenance/public-access refused export-multifile: keep this rule in `gritlint check`; only a single-file rule exports.
+npm-provenance/repository-url refused export-multifile: keep this rule in `gritlint check`; only a single-file rule exports.
+source-resolution/api-extractor-tsconfig refused export-multifile: keep this rule in `gritlint check`; only a single-file rule exports.
+source-resolution/export-map-order refused export-multifile: keep this rule in `gritlint check`; only a single-file rule exports.
+source-resolution/internals-export-map refused export-multifile: keep this rule in `gritlint check`; only a single-file rule exports.
+source-resolution/publish-config-exports refused export-multifile: keep this rule in `gritlint check`; only a single-file rule exports.
+source-resolution/shared-vitest-config refused export-multifile: keep this rule in `gritlint check`; only a single-file rule exports.
+source-resolution/tsconfig-condition refused export-multifile: keep this rule in `gritlint check`; only a single-file rule exports.
+source-resolution/tsconfig-paths refused export-multifile: keep this rule in `gritlint check`; only a single-file rule exports.
+source-resolution/tsconfig-preset-module-mode refused export-multifile: keep this rule in `gritlint check`; only a single-file rule exports.
+source-resolution/tsdown-exports refused export-multifile: keep this rule in `gritlint check`; only a single-file rule exports.
+source-resolution/vitest-conditions refused export-multifile: keep this rule in `gritlint check`; only a single-file rule exports.
+typecheck-build-mode/typecheck-build-mode refused export-multifile: keep this rule in `gritlint check`; only a single-file rule exports.

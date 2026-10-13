@@ -1,35 +1,15 @@
 #![allow(clippy::expect_used, clippy::disallowed_methods)]
 
+mod common;
+
 use gritlint_core::decode::{self, GritlintConfig};
-use gritlint_core::domain::{EmbeddedFile, RelPath};
 use gritlint_core::shell;
 use std::fs;
-use std::path::{Path, PathBuf};
-
-fn packs_dir() -> PathBuf {
-    Path::new(env!("CARGO_MANIFEST_DIR")).join("../../packs")
-}
-
-fn embedded_files() -> Vec<EmbeddedFile> {
-    let packs = packs_dir();
-    let tree = shell::read_tree(&packs).expect("read the bundled packs");
-    tree.files()
-        .iter()
-        .map(|file| {
-            EmbeddedFile::new(
-                RelPath::from_root(tree.root(), file.path())
-                    .expect("a file below the packs root")
-                    .as_str()
-                    .to_owned(),
-                file.contents().to_owned(),
-            )
-        })
-        .collect()
-}
+use std::path::Path;
 
 #[test]
 fn the_configuration_schema_is_the_committed_schema() {
-    let packs = decode::embedded_packs(&embedded_files()).expect("decode the bundled packs");
+    let packs = common::packs_in(&common::bundled_packs_dir());
     let schema = GritlintConfig::schema_for_packs(&packs);
     let rendered = format!(
         "{}\n",

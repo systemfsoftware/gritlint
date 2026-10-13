@@ -1,8 +1,12 @@
 #![allow(clippy::disallowed_methods, clippy::disallowed_types)]
 
 use crate::decode::{is_rule_file, is_scannable};
-use crate::domain::{IgnoreGlobs, RawFile, RawTree, RelPath, RuleSource, SourcePath, Sources};
+use crate::domain::{
+    IgnoreGlobs, Pack, RawFile, RawTree, RelPath, RuleSource, SelectedFiles, SourcePath, Sources,
+};
 use crate::error::GritlintError;
+use crate::lsp;
+use crate::workspace::{self, Workspace, WorkspaceInputs};
 use ignore::WalkBuilder;
 use rayon::prelude::*;
 use std::path::{Path, PathBuf};
@@ -77,6 +81,57 @@ pub fn read_text(path: &Path) -> Result<String, GritlintError> {
 #[must_use]
 pub fn is_file(path: &Path) -> bool {
     path.is_file()
+}
+
+pub fn absolute(path: &Path) -> Result<PathBuf, GritlintError> {
+    std::fs::canonicalize(path).map_err(|source| GritlintError::Io {
+        path: path.to_owned(),
+        source,
+    })
+}
+
+pub fn load_workspace(
+    inputs: &WorkspaceInputs,
+    packs: &[Pack],
+) -> Result<Workspace, GritlintError> {
+    let config_path = inputs.config_path();
+    let config_text = if inputs.config.is_some() || is_file(&config_path) {
+        Some(
+            read_to_string(&config_path).map_err(|source| GritlintError::ConfigRead {
+                path: config_path.clone(),
+                source,
+            })?,
+        )
+    } else {
+        None
+    };
+    let configured = workspace::configure(inputs, config_text.as_deref())?;
+    let rule_sources = read_rule_sources(configured.rule_paths())?;
+    configured.load(packs, rule_sources)
+}
+
+pub fn select(workspace: &Workspace) -> Result<SelectedFiles, GritlintError> {
+    workspace.select(walk(workspace.root(), workspace.ignore()))
+}
+
+pub struct Disk;
+
+impl lsp::Files for Disk {
+    fn load(&self, inputs: &WorkspaceInputs, packs: &[Pack]) -> Result<Workspace, GritlintError> {
+        load_workspace(inputs, packs)
+    }
+
+    fn select(&self, workspace: &Workspace) -> Result<SelectedFiles, GritlintError> {
+        select(workspace)
+    }
+
+    fn read(&self, root: &Path, paths: &[RelPath]) -> Result<Sources, GritlintError> {
+        read_sources(root, paths)
+    }
+
+    fn absolute(&self, path: &Path) -> Result<PathBuf, GritlintError> {
+        absolute(path)
+    }
 }
 
 fn read_source(path: &Path) -> Result<RuleSource, GritlintError> {

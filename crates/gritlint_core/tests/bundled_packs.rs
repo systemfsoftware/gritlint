@@ -1,15 +1,13 @@
 #![allow(clippy::expect_used, clippy::disallowed_methods)]
 
+mod common;
+
+use common::{bundled_packs_dir as packs_dir, embedded_files};
 use gritlint_core::decide;
 use gritlint_core::decode;
-use gritlint_core::domain::{EmbeddedFile, RelPath};
 use gritlint_core::shell;
 use std::fs;
 use std::path::{Path, PathBuf};
-
-fn packs_dir() -> PathBuf {
-    Path::new(env!("CARGO_MANIFEST_DIR")).join("../../packs")
-}
 
 fn subdirectories(dir: &Path) -> Vec<PathBuf> {
     fs::read_dir(dir)
@@ -35,22 +33,6 @@ fn committed_case_count(packs: &Path) -> usize {
 struct Manifest {
     #[serde(rename = "requiredParams")]
     required_params: Vec<String>,
-}
-
-fn embedded_files(packs: &Path) -> Vec<EmbeddedFile> {
-    let tree = shell::read_tree(packs).expect("read the bundled packs");
-    tree.files()
-        .iter()
-        .map(|file| {
-            EmbeddedFile::new(
-                RelPath::from_root(tree.root(), file.path())
-                    .expect("a file below the packs root")
-                    .as_str()
-                    .to_owned(),
-                file.contents().to_owned(),
-            )
-        })
-        .collect()
 }
 
 fn entry_names(dir: &Path) -> Vec<String> {

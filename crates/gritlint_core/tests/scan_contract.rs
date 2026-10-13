@@ -11,11 +11,12 @@ use gritlint_core::GritlintError;
 use gritlint_core::decide;
 use gritlint_core::decode;
 use gritlint_core::domain::{
-    NonEmpty, Outcome, ParsedRule, Position, Range, RuleSource, ScanPlan, SourcePath, Sources,
+    NonEmpty, Outcome, ParsedRule, Position, Range, RelPath, RuleSource, ScanPlan, SourcePath,
+    Sources,
 };
 use gritlint_core::encode;
 use gritlint_core::shell;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -745,5 +746,129 @@ fn a_multifile_locator_tie_goes_to_the_first_path_not_the_engine_order() {
         locations(&outcome),
         ["local/join a/package.json:2:3-2:13"],
         "both files match at the same range, so the first path wins"
+    );
+}
+
+fn two_directories() -> tempfile::TempDir {
+    let temp = tempfile::tempdir().expect("temp dir");
+    for directory in ["a", "b"] {
+        write(
+            temp.path(),
+            &format!("{directory}/tsconfig.json"),
+            "{\"compilerOptions\": {}}\n",
+        );
+        write(
+            temp.path(),
+            &format!("{directory}/package.json"),
+            "{\"vite\": \"1\", \"react\": \"18\"}\n",
+        );
+    }
+    temp
+}
+
+fn located(plan: &ScanPlan, root: &Path) -> Vec<String> {
+    let sources = shell::read_sources(root, &decide::sources_needed(plan)).expect("read");
+    decide::scan(plan, &sources)
+        .expect("scan")
+        .findings()
+        .iter()
+        .map(|finding| format!("{} {}", finding.rule_id(), finding.location()))
+        .collect()
+}
+
+fn open(paths: &[&str]) -> BTreeSet<RelPath> {
+    paths
+        .iter()
+        .map(|path| RelPath::new(path).expect("a relative path"))
+        .collect()
+}
+
+#[test]
+fn a_plan_restricted_to_one_open_file_finds_what_the_full_scan_finds_for_its_directory() {
+    let temp = two_directories();
+    let rules = [
+        rule("react-pair", REACT_PAIR),
+        rule("sibling-join", SIBLING_JOIN),
+    ];
+    let full = plan(temp.path(), &rules, &[]).expect("plan");
+
+    let restricted = decide::restrict(full.clone(), &open(&["a/package.json"]));
+
+    assert_eq!(
+        located(&restricted, temp.path()),
+        vec![
+            "local/react-pair a/package.json:1:15",
+            "local/sibling-join a/package.json",
+        ]
+    );
+    assert_eq!(
+        located(&full, temp.path())
+            .into_iter()
+            .filter(|line| line.contains(" a/"))
+            .collect::<Vec<_>>(),
+        located(&restricted, temp.path())
+    );
+}
+
+#[test]
+fn a_multifile_block_after_a_comment_is_planned_per_directory_and_kept_whole_for_an_open_file() {
+    let temp = two_directories();
+    let commented = SIBLING_JOIN.replacen(
+        "language json\n",
+        "language json\n// A tsconfig is read with the package.json beside it.\n",
+        1,
+    );
+    let rules = [rule("sibling-join", &commented)];
+    let full = plan(temp.path(), &rules, &[]).expect("plan");
+
+    let restricted = decide::restrict(full.clone(), &open(&["a/package.json"]));
+
+    assert_eq!(
+        located(&restricted, temp.path()),
+        vec!["local/sibling-join a/package.json"]
+    );
+    assert_eq!(
+        located(&full, temp.path())
+            .into_iter()
+            .filter(|line| line.contains(" a/"))
+            .collect::<Vec<_>>(),
+        located(&restricted, temp.path())
+    );
+}
+
+#[test]
+fn a_plan_without_a_file_drops_its_single_file_entry_and_every_directory_batch_holding_it() {
+    let temp = two_directories();
+    let rules = [
+        rule("react-pair", REACT_PAIR),
+        rule("sibling-join", SIBLING_JOIN),
+    ];
+    let full = plan(temp.path(), &rules, &[]).expect("plan");
+    let tsconfig = RelPath::new("a/tsconfig.json").expect("a relative path");
+
+    assert_eq!(
+        decide::batch_mates(&full, &tsconfig),
+        open(&["a/package.json"])
+    );
+    assert_eq!(
+        located(&decide::without(full.clone(), &tsconfig), temp.path()),
+        vec![
+            "local/react-pair a/package.json:1:15",
+            "local/react-pair b/package.json:1:15",
+            "local/sibling-join b/package.json",
+        ]
+    );
+    assert_eq!(
+        located(
+            &decide::without(
+                full,
+                &RelPath::new("a/package.json").expect("a relative path")
+            ),
+            temp.path()
+        ),
+        vec![
+            "local/react-pair b/package.json:1:15",
+            "local/sibling-join b/package.json",
+        ]
     );
 }

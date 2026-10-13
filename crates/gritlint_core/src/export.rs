@@ -1,0 +1,261 @@
+use crate::domain::{CompiledRule, ExportReason, ExportRefusal, ParsedRule, RuleKind};
+use grit_util::{Ast as _, AstNode as _, Order, traverse};
+use marzano_language::grit_parser::MarzanoGritParser;
+use marzano_language::language::Tree;
+use marzano_util::node_with_source::NodeWithSource;
+use std::collections::BTreeSet;
+use std::fmt::Write as _;
+
+const LANGUAGES: [&str; 3] = ["css", "js", "json"];
+const JS_FLAVORS: [&str; 2] = ["typescript", "jsx"];
+const WRAPPER: &str = "gritlint_exported_rule";
+const MATCH: &str = "$gritlint_match";
+
+pub fn find<'a>(rules: &[&'a CompiledRule], id: &str) -> Result<&'a CompiledRule, ExportRefusal> {
+    rules
+        .iter()
+        .copied()
+        .find(|compiled| compiled.rule().id().as_string() == id)
+        .ok_or_else(|| {
+            ExportRefusal::new(
+                id.to_owned(),
+                ExportReason::UnknownRule,
+                "no enabled rule has this id.".to_owned(),
+                "run `gritlint export biome` without `--rule` to list the enabled rule ids.",
+            )
+        })
+}
+
+pub fn biome(compiled: &CompiledRule, all: &[&CompiledRule]) -> Result<String, ExportRefusal> {
+    let rule = compiled.rule();
+    let refuse = |reason, detail: String, next_action| {
+        ExportRefusal::new(rule.id().as_string(), reason, detail, next_action)
+    };
+    if compiled.kind() == RuleKind::MultiFile {
+        return Err(refuse(
+            ExportReason::Multifile,
+            "the rule is multifile, and a Biome plugin sees one file at a time.".to_owned(),
+            "keep this rule in `gritlint check`; only a single-file rule exports.",
+        ));
+    }
+    let root = parse(rule.body()).map_err(|error| {
+        refuse(
+            ExportReason::Construct,
+            format!("the rule body does not parse as GritQL: {error}."),
+            "report the rule to gritlint; `gritlint check` compiled it.",
+        )
+    })?;
+    let body = Body::read(&root.root_node());
+    if let Some(language) = body.unsupported_language() {
+        return Err(refuse(
+            ExportReason::Language,
+            format!(
+                "`language {language}` is not a Biome plugin language: Biome plugins take css, js and json, and js only without a flavor or as typescript or jsx."
+            ),
+            "keep this rule in `gritlint check`, or write it for a language Biome plugins support.",
+        ));
+    }
+    if body.foreign_function {
+        return Err(refuse(
+            ExportReason::Construct,
+            "the rule defines a JavaScript function (`function … js { … }`), which Biome does not compile.".to_owned(),
+            "rewrite the function as a GritQL pattern or predicate, or keep this rule in `gritlint check`.",
+        ));
+    }
+    if body.rewrite {
+        return Err(refuse(
+            ExportReason::Rewrite,
+            "the rule rewrites (`=>`), and gritlint never edits files.".to_owned(),
+            "remove the rewrite to export a rule that only reports.",
+        ));
+    }
+    let scope = rule.id().scope();
+    let siblings = all
+        .iter()
+        .map(|other| other.rule())
+        .filter(|other| other.id() != rule.id() && other.id().scope() == scope)
+        .try_fold(BTreeSet::new(), |mut names, other| {
+            let tree = parse(other.body()).map_err(|error| {
+                refuse(
+                    ExportReason::Construct,
+                    format!(
+                        "`{}`, another rule of its pack, does not parse as GritQL: {error}.",
+                        other.id()
+                    ),
+                    "report that rule to gritlint; `gritlint check` compiled it.",
+                )
+            })?;
+            names.insert(other.name().as_str().to_owned());
+            names.extend(Body::read(&tree.root_node()).defined);
+            Ok(names)
+        })?;
+    if let Some(called) = body
+        .calls
+        .difference(&body.defined)
+        .find(|name| siblings.contains(*name))
+    {
+        return Err(refuse(
+            ExportReason::Library,
+            format!(
+                "the rule calls `{called}`, which another rule of its pack defines, and a plugin cannot reach it."
+            ),
+            "inline the called rule's pattern into this rule, or keep this rule in `gritlint check`.",
+        ));
+    }
+    Ok(render(rule, &body))
+}
+
+#[must_use]
+pub fn listing(rules: &[&CompiledRule]) -> String {
+    let mut sorted: Vec<&CompiledRule> = rules.to_vec();
+    sorted.sort_by_cached_key(|compiled| compiled.rule().id().as_string());
+    sorted.iter().fold(String::new(), |mut out, compiled| {
+        let line = match biome(compiled, rules) {
+            Ok(_) => format!("{} exportable", compiled.rule().id()),
+            Err(refusal) => format!(
+                "{} refused {}: {}",
+                compiled.rule().id(),
+                refusal.reason().code(),
+                refusal.next_action()
+            ),
+        };
+        let _ = writeln!(out, "{line}");
+        out
+    })
+}
+
+#[derive(Default)]
+struct Body {
+    language: String,
+    language_name: String,
+    flavors: Vec<String>,
+    definitions: Vec<String>,
+    pattern: String,
+    foreign_function: bool,
+    rewrite: bool,
+    calls: BTreeSet<String>,
+    defined: BTreeSet<String>,
+}
+
+impl Body {
+    fn read(root: &NodeWithSource<'_>) -> Self {
+        let mut body = Self::default();
+        if let Some(language) = root.child_by_field_name("language") {
+            body.language = text(&language);
+            body.language_name = language
+                .child_by_field_name("name")
+                .map(|name| text(&name))
+                .unwrap_or_default();
+            body.flavors = language
+                .children_by_field_name("flavor")
+                .map(|flavor| text(&flavor).trim_matches(['(', ')']).trim().to_owned())
+                .filter(|flavor| !flavor.is_empty())
+                .collect();
+        }
+        body.definitions = root
+            .named_children_by_field_name("definitions")
+            .map(|definition| text(&definition))
+            .collect();
+        body.pattern = pattern_text(root);
+        traverse(root.walk(), Order::Pre).for_each(|node| body.visit(&node));
+        body
+    }
+
+    fn visit(&mut self, node: &NodeWithSource<'_>) {
+        match node.node.kind().as_ref() {
+            "foreignFunctionDefinition" => self.foreign_function = true,
+            "rewrite" | "predicateRewrite" => self.rewrite = true,
+            "nodeLike" | "predicateCall" => {
+                self.calls
+                    .extend(node.child_by_field_name("name").map(|name| text(&name)));
+            }
+            "patternDefinition" | "predicateDefinition" | "functionDefinition" => {
+                self.defined
+                    .extend(node.child_by_field_name("name").map(|name| text(&name)));
+            }
+            _ => {}
+        }
+    }
+
+    fn unsupported_language(&self) -> Option<&str> {
+        let name_supported = LANGUAGES.contains(&self.language_name.as_str());
+        let flavors_supported = self.language_name != "js"
+            || self
+                .flavors
+                .iter()
+                .all(|flavor| JS_FLAVORS.contains(&flavor.as_str()));
+        (!(name_supported && flavors_supported)).then(|| {
+            self.language
+                .strip_prefix("language")
+                .unwrap_or(&self.language)
+                .trim()
+        })
+    }
+}
+
+fn parse(body: &str) -> Result<Tree, String> {
+    MarzanoGritParser::new()
+        .and_then(|mut parser| parser.parse_file(body, None))
+        .map_err(|error| error.to_string())
+}
+
+fn pattern_text(root: &NodeWithSource<'_>) -> String {
+    let pieces: Vec<NodeWithSource<'_>> = root.children_by_field_name("pattern").collect();
+    let (Some(first), Some(last)) = (pieces.first(), pieces.last()) else {
+        return String::new();
+    };
+    let start = first.range().start_byte;
+    let end = last.range().end_byte;
+    usize::try_from(start)
+        .ok()
+        .zip(usize::try_from(end).ok())
+        .and_then(|(start, end)| root.source.get(start..end))
+        .unwrap_or_default()
+        .to_owned()
+}
+
+fn text(node: &NodeWithSource<'_>) -> String {
+    node.text()
+        .map(|text| text.trim().to_owned())
+        .unwrap_or_default()
+}
+
+fn render(rule: &ParsedRule, body: &Body) -> String {
+    let definitions: Vec<String> = rule
+        .engine_parameters()
+        .into_iter()
+        .map(|(name, value)| crate::engine::parameter_definition(&name, &value))
+        .chain(body.definitions.iter().cloned())
+        .collect();
+    let sections = [
+        body.language.clone(),
+        definitions.join("\n"),
+        format!("pattern {WRAPPER}() {{\n  {}\n}}", body.pattern),
+        format!(
+            "{WRAPPER}() as {MATCH} where {{\n  register_diagnostic(span = {MATCH}, message = \"{}\", severity = \"error\")\n}}",
+            escape(rule.message())
+        ),
+    ];
+    let mut plugin = sections
+        .into_iter()
+        .filter(|section| !section.is_empty())
+        .collect::<Vec<_>>()
+        .join("\n\n");
+    plugin.push('\n');
+    plugin
+}
+
+fn escape(message: &str) -> String {
+    message.chars().fold(
+        String::with_capacity(message.len()),
+        |mut out, character| {
+            match character {
+                '\\' => out.push_str("\\\\"),
+                '"' => out.push_str("\\\""),
+                '\n' => out.push_str("\\n"),
+                other => out.push(other),
+            }
+            out
+        },
+    )
+}

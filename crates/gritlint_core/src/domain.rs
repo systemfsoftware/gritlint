@@ -8,6 +8,78 @@ use std::fmt;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ExportReason {
+    UnknownRule,
+    Multifile,
+    Language,
+    Construct,
+    Rewrite,
+    Library,
+}
+
+impl ExportReason {
+    #[must_use]
+    pub const fn code(self) -> &'static str {
+        match self {
+            Self::UnknownRule => "export-unknown-rule",
+            Self::Multifile => "export-multifile",
+            Self::Language => "export-language",
+            Self::Construct => "export-construct",
+            Self::Rewrite => "export-rewrite",
+            Self::Library => "export-library",
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ExportRefusal {
+    rule: String,
+    reason: ExportReason,
+    detail: String,
+    next_action: &'static str,
+}
+
+impl ExportRefusal {
+    #[must_use]
+    pub fn new(
+        rule: String,
+        reason: ExportReason,
+        detail: String,
+        next_action: &'static str,
+    ) -> Self {
+        Self {
+            rule,
+            reason,
+            detail,
+            next_action,
+        }
+    }
+
+    #[must_use]
+    pub fn reason(&self) -> ExportReason {
+        self.reason
+    }
+
+    #[must_use]
+    pub fn next_action(&self) -> &'static str {
+        self.next_action
+    }
+}
+
+impl fmt::Display for ExportRefusal {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            formatter,
+            "{}: {}: {} Next action: {}",
+            self.rule,
+            self.reason.code(),
+            self.detail,
+            self.next_action
+        )
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct NonEmpty<T> {
     head: T,
@@ -465,7 +537,6 @@ pub struct ParsedRule {
     language: Language,
     targets: Vec<Regex>,
     params: BTreeMap<ParamName, String>,
-    kind: RuleKind,
     guidance: Arc<Guidance>,
     locate: Option<String>,
 }
@@ -483,7 +554,6 @@ impl ParsedRule {
         guidance: Guidance,
         locate: Option<String>,
     ) -> Self {
-        let kind = rule_kind(&body);
         Self {
             id,
             name,
@@ -493,7 +563,6 @@ impl ParsedRule {
             language,
             targets,
             params: BTreeMap::new(),
-            kind,
             guidance: Arc::new(guidance),
             locate,
         }
@@ -532,11 +601,6 @@ impl ParsedRule {
     #[must_use]
     pub fn targets(&self) -> &[Regex] {
         &self.targets
-    }
-
-    #[must_use]
-    pub fn kind(&self) -> RuleKind {
-        self.kind
     }
 
     #[must_use]
@@ -624,6 +688,15 @@ impl CompiledRule {
     }
 
     #[must_use]
+    pub fn kind(&self) -> RuleKind {
+        if self.compiled.is_multifile() {
+            RuleKind::MultiFile
+        } else {
+            RuleKind::SingleFile
+        }
+    }
+
+    #[must_use]
     pub fn locator(&self) -> Option<&crate::engine::Compiled> {
         self.locator.as_deref()
     }
@@ -659,6 +732,12 @@ impl Sources {
     #[must_use]
     pub fn text(&self, path: &RelPath) -> Option<&str> {
         self.0.get(path).map(String::as_str)
+    }
+
+    #[must_use]
+    pub fn overlaid(mut self, texts: impl IntoIterator<Item = (RelPath, String)>) -> Self {
+        self.0.extend(texts);
+        self
     }
 }
 
@@ -746,13 +825,8 @@ impl DirectoryBatch {
 
 #[derive(Debug, Clone)]
 pub(crate) enum Evaluation {
-    SingleFile {
-        batch: Vec<SelectedFile>,
-    },
-    MultiFile {
-        directories: Vec<DirectoryBatch>,
-        evaluated: usize,
-    },
+    SingleFile { batch: Vec<SelectedFile> },
+    MultiFile { directories: Vec<DirectoryBatch> },
 }
 
 #[derive(Debug, Clone)]
@@ -1209,16 +1283,5 @@ impl FixtureLayout {
     #[must_use]
     pub(crate) fn new(units: Vec<FixtureUnit>) -> Self {
         Self { units }
-    }
-}
-
-fn rule_kind(body: &str) -> RuleKind {
-    let first = body.lines().map(str::trim).find(|line| {
-        !line.is_empty() && !line.starts_with("language") && !line.starts_with("engine")
-    });
-    if first.is_some_and(|line| line.starts_with("multifile")) {
-        RuleKind::MultiFile
-    } else {
-        RuleKind::SingleFile
     }
 }

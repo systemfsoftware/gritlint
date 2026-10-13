@@ -1,11 +1,12 @@
 use clap::{Args, Parser, Subcommand, ValueEnum};
 use gritlint_core::decode::{self, GritlintConfig};
-use gritlint_core::domain::{EmbeddedFile, Pack, Verdict};
+use gritlint_core::domain::{CompiledRule, EmbeddedFile, Pack, Verdict};
 use gritlint_core::error::GritlintError;
-use gritlint_core::{decide, encode, shell};
+use gritlint_core::workspace::WorkspaceInputs;
+use gritlint_core::{decide, encode, export, lsp, shell};
 use include_dir::{Dir, include_dir};
 use std::io::{IsTerminal, Write};
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::process::ExitCode;
 
 static PACKS: Dir<'_> = include_dir!("$CARGO_MANIFEST_DIR/../../packs");
@@ -28,20 +29,30 @@ enum Command {
     Check(CheckArgs),
     #[command(about = "Run a pack's fixtures against its rules.")]
     Test(TestArgs),
+    #[command(about = "Serve findings to an editor over the Language Server Protocol on stdio.")]
+    Lsp(InputArgs),
+    #[command(about = "Export rules for another linter.")]
+    Export(ExportArgs),
     #[command(hide = true, about = "Print the gritlint.json JSON schema.")]
     Schema(SchemaArgs),
 }
 
 #[derive(Debug, Args)]
-struct CheckArgs {
+struct InputArgs {
     #[arg(long, value_name = "PATH")]
     config: Option<PathBuf>,
     #[arg(long = "rules", value_name = "PATH")]
     rules: Vec<PathBuf>,
-    #[arg(long, value_enum, default_value_t = Format::Human)]
-    format: Format,
     #[arg(default_value = ".")]
     root: PathBuf,
+}
+
+#[derive(Debug, Args)]
+struct CheckArgs {
+    #[command(flatten)]
+    inputs: InputArgs,
+    #[arg(long, value_enum, default_value_t = Format::Human)]
+    format: Format,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
@@ -75,6 +86,30 @@ struct TestArgs {
     dir: PathBuf,
 }
 
+#[derive(Debug, Args)]
+struct ExportArgs {
+    #[command(subcommand)]
+    target: ExportTarget,
+}
+
+#[derive(Debug, Subcommand)]
+enum ExportTarget {
+    #[command(about = "Print a rule as a Biome GritQL plugin, or list which rules export.")]
+    Biome(ExportBiomeArgs),
+}
+
+#[derive(Debug, Args)]
+struct ExportBiomeArgs {
+    #[command(flatten)]
+    inputs: InputArgs,
+    #[arg(
+        long,
+        value_name = "ID",
+        help = "The rule to print; without it, list every enabled rule."
+    )]
+    rule: Option<String>,
+}
+
 fn main() -> ExitCode {
     tracing_subscriber::fmt()
         .with_writer(std::io::stderr)
@@ -88,6 +123,10 @@ fn main() -> ExitCode {
         Command::Check(args) => report_exit(check(&args)),
         Command::Test(args) => report_exit(test(&args)),
         Command::Schema(args) => report_exit(schema(&args)),
+        Command::Lsp(args) => report_exit(lsp(&args)),
+        Command::Export(ExportArgs {
+            target: ExportTarget::Biome(args),
+        }) => report_exit(export_biome(&args)),
     }
 }
 
@@ -99,6 +138,28 @@ fn report_exit(result: Result<ExitCode, GritlintError>) -> ExitCode {
             ExitCode::from(decide::exit_code(Verdict::Refused))
         }
     }
+}
+
+fn lsp(args: &InputArgs) -> Result<ExitCode, GritlintError> {
+    let packs = embedded_packs()?;
+    let (connection, io_threads) = lsp_server::Connection::stdio();
+    let ending = lsp::serve(&connection, &shell::Disk, &args.workspace(), &packs);
+    drop(connection);
+    let _ = io_threads.join();
+    Ok(ExitCode::from(ending.exit_code()))
+}
+
+fn export_biome(args: &ExportBiomeArgs) -> Result<ExitCode, GritlintError> {
+    let workspace = shell::load_workspace(&args.inputs.workspace(), &embedded_packs()?)?;
+    let rules: Vec<&CompiledRule> = workspace.rules().iter().collect();
+    let text = match &args.rule {
+        None => export::listing(&rules),
+        Some(id) => export::find(&rules, id)
+            .and_then(|rule| export::biome(rule, &rules))
+            .map_err(GritlintError::ExportRefused)?,
+    };
+    emit(&text)?;
+    Ok(ExitCode::SUCCESS)
 }
 
 fn schema(args: &SchemaArgs) -> Result<ExitCode, GritlintError> {
@@ -115,40 +176,10 @@ fn schema(args: &SchemaArgs) -> Result<ExitCode, GritlintError> {
 }
 
 fn check(args: &CheckArgs) -> Result<ExitCode, GritlintError> {
-    let config_path = args
-        .config
-        .clone()
-        .unwrap_or_else(|| args.root.join("gritlint.json"));
-    let config = if args.config.is_some() || shell::is_file(&config_path) {
-        let text =
-            shell::read_to_string(&config_path).map_err(|source| GritlintError::ConfigRead {
-                path: config_path.clone(),
-                source,
-            })?;
-        GritlintConfig::parse(&text).map_err(|source| GritlintError::ConfigParse {
-            path: config_path.clone(),
-            source,
-        })?
-    } else {
-        GritlintConfig::default()
-    };
-
-    let mut consumer: Vec<PathBuf> = config
-        .rules
-        .iter()
-        .map(|path| resolve_against(&config_path, path))
-        .collect();
-    consumer.extend(args.rules.iter().cloned());
-
-    let packs = embedded_packs()?;
-    let enabled = decode::enabled_packs(&config, &config_path)?;
-    let rule_sources = shell::read_rule_sources(&consumer)?;
-    let rules = decode::load_rules(&packs, &enabled, rule_sources, &config_path)?;
-    let ignore = decode::ignore_globs(&config.ignore)?;
-    let walked = shell::walk(&args.root, &ignore);
-    let files = decode::select_files(walked, &args.root)?;
-    let plan = decide::plan(&rules, &files);
-    let sources = shell::read_sources(&args.root, &decide::sources_needed(&plan))?;
+    let workspace = shell::load_workspace(&args.inputs.workspace(), &embedded_packs()?)?;
+    let files = shell::select(&workspace)?;
+    let plan = decide::plan(workspace.rules(), &files);
+    let sources = shell::read_sources(workspace.root(), &decide::sources_needed(&plan))?;
     let outcome = decide::scan(&plan, &sources)?;
 
     let rendered = match args.format {
@@ -202,10 +233,12 @@ fn collect_embedded(dir: &Dir<'_>, files: &mut Vec<EmbeddedFile>) {
     }
 }
 
-fn resolve_against(config: &Path, path: &Path) -> PathBuf {
-    if path.is_absolute() {
-        path.to_owned()
-    } else {
-        config.parent().unwrap_or_else(|| Path::new(".")).join(path)
+impl InputArgs {
+    fn workspace(&self) -> WorkspaceInputs {
+        WorkspaceInputs {
+            config: self.config.clone(),
+            rules: self.rules.clone(),
+            root: self.root.clone(),
+        }
     }
 }

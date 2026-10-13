@@ -1,4 +1,4 @@
-use crate::domain::{ParamNameRefusal, RelPathRefusal};
+use crate::domain::{ExportRefusal, ParamNameRefusal, RelPathRefusal};
 use std::path::PathBuf;
 
 #[derive(Debug, thiserror::Error)]
@@ -79,7 +79,7 @@ pub enum GritlintError {
         reason: RelPathRefusal,
     },
     #[error(
-        "{file}:{line}:{column}: target-does-not-parse: {message} Next action: fix the syntax at that position; if the language's own compiler accepts it, report the construct to gritlint, and never ignore the file."
+        "{file}:{line}:{column}: {TARGET_DOES_NOT_PARSE}: {message} Next action: fix the syntax at that position; if the language's own compiler accepts it, report the construct to gritlint, and never ignore the file."
     )]
     TargetParse {
         file: String,
@@ -88,13 +88,17 @@ pub enum GritlintError {
         message: String,
     },
     #[error(
-        "{file}: target-too-large: {message} Next action: the engine never scans a file over its size limit (1,000,000 bytes); if the file is generated or vendored, add it to `ignore` in the gritlint config, otherwise split it below the limit."
+        "{file}: {TARGET_TOO_LARGE}: {message} Next action: the engine never scans a file over its size limit (1,000,000 bytes); if the file is generated or vendored, add it to `ignore` in the gritlint config, otherwise split it below the limit."
     )]
     TargetTooLarge { file: String, message: String },
     #[error(
-        "{file}: target-not-scanned: {message} Next action: report the message and the file to gritlint; the engine could not scan the file, so the run cannot pass it."
+        "{file}: {TARGET_NOT_SCANNED}: {message} Next action: report the message and the file to gritlint; the engine could not scan the file, so the run cannot pass it."
     )]
     TargetNotScanned { file: String, message: String },
+    #[error(
+        "{file}: {TARGET_UNREADABLE}: {message} Next action: make the file readable UTF-8 text, or add it to `ignore` in the gritlint config; `gritlint check` refuses the run until then."
+    )]
+    TargetUnreadable { file: String, message: String },
     #[error("target file `{path}` was planned for a rule but never read")]
     SourceUnread { path: String },
     #[error("ignore glob `{glob}` is invalid: {message}")]
@@ -109,6 +113,89 @@ pub enum GritlintError {
         #[source]
         source: serde_json::Error,
     },
+    #[error("{0}")]
+    ExportRefused(ExportRefusal),
+}
+
+const TARGET_DOES_NOT_PARSE: &str = "target-does-not-parse";
+const TARGET_TOO_LARGE: &str = "target-too-large";
+const TARGET_NOT_SCANNED: &str = "target-not-scanned";
+const TARGET_UNREADABLE: &str = "target-unreadable";
+
+/// Why the engine refused one target file. Only a parse failure has a position.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TargetReason {
+    DoesNotParse { line: u32, column: u32 },
+    TooLarge,
+    NotScanned,
+    Unreadable,
+}
+
+impl TargetReason {
+    #[must_use]
+    pub const fn code(self) -> &'static str {
+        match self {
+            Self::DoesNotParse { .. } => TARGET_DOES_NOT_PARSE,
+            Self::TooLarge => TARGET_TOO_LARGE,
+            Self::NotScanned => TARGET_NOT_SCANNED,
+            Self::Unreadable => TARGET_UNREADABLE,
+        }
+    }
+
+    #[must_use]
+    pub const fn position(self) -> Option<(u32, u32)> {
+        match self {
+            Self::DoesNotParse { line, column } => Some((line, column)),
+            Self::TooLarge | Self::NotScanned | Self::Unreadable => None,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct TargetRefusal<'a> {
+    file: &'a str,
+    reason: TargetReason,
+}
+
+impl<'a> TargetRefusal<'a> {
+    #[must_use]
+    pub const fn file(&self) -> &'a str {
+        self.file
+    }
+
+    #[must_use]
+    pub const fn reason(&self) -> TargetReason {
+        self.reason
+    }
+}
+
+impl GritlintError {
+    #[must_use]
+    pub fn target(&self) -> Option<TargetRefusal<'_>> {
+        let refusal = |file, reason| Some(TargetRefusal { file, reason });
+        if let Self::TargetParse {
+            file, line, column, ..
+        } = self
+        {
+            return refusal(
+                file,
+                TargetReason::DoesNotParse {
+                    line: *line,
+                    column: *column,
+                },
+            );
+        }
+        if let Self::TargetTooLarge { file, .. } = self {
+            return refusal(file, TargetReason::TooLarge);
+        }
+        if let Self::TargetNotScanned { file, .. } = self {
+            return refusal(file, TargetReason::NotScanned);
+        }
+        if let Self::TargetUnreadable { file, .. } = self {
+            return refusal(file, TargetReason::Unreadable);
+        }
+        None
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

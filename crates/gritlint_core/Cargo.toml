@@ -11,8 +11,10 @@ description = "Engine adapter, rule loading, scanning and reporting for gritlint
 globset = { workspace = true }
 grit-util = { git = "https://github.com/biomejs/gritql", rev = "4ca283484ab9bd11ca3cbc9e14b5ad2db5d61a37", default-features = false }
 ignore = { workspace = true }
+lsp-server = { workspace = true }
+lsp-types = { workspace = true }
 marzano-core = { git = "https://github.com/biomejs/gritql", rev = "4ca283484ab9bd11ca3cbc9e14b5ad2db5d61a37", default-features = false, features = ["grit-parser", "language-parsers", "non_wasm"] }
-marzano-language = { git = "https://github.com/biomejs/gritql", rev = "4ca283484ab9bd11ca3cbc9e14b5ad2db5d61a37", default-features = false, features = ["builtin-parser"] }
+marzano-language = { git = "https://github.com/biomejs/gritql", rev = "4ca283484ab9bd11ca3cbc9e14b5ad2db5d61a37", default-features = false, features = ["builtin-parser", "grit-parser"] }
 marzano-util = { git = "https://github.com/biomejs/gritql", rev = "4ca283484ab9bd11ca3cbc9e14b5ad2db5d61a37", default-features = false }
 rayon = { workspace = true }
 regex = { workspace = true }
