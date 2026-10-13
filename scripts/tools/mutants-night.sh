@@ -122,7 +122,7 @@ task_body() {
     | $marker,
       "Mutants night [\($r.night)](https://github.com/\($repo)/actions/runs/\($r.night)) at `\($r.sha)` is red.",
       "",
-      "**Range:** \(if $r.base then "`\($r.base)`..`\($r.sha)` (from green night \($r.base_night))" else "every commit to `\($r.sha)`: no green night yet" end). **Scope:** \($r.mode) (\($r.reason)).",
+      "**Range:** \(if $r.base then "`\($r.base)`..`\($r.sha)` (from green night \($r.base_night))" else "no green night yet, so the newest \($merges[0] | length) first-parent commits to `\($r.sha)`" end). **Scope:** \($r.mode) (\($r.reason)).",
       "",
       "**Survivors and failures:**",
       "",
@@ -158,24 +158,11 @@ comment_body() {
   ' || die "cannot write the comment"
 }
 
-last_green() {
-  local out=$1 id artifact sha
-  mkdir -p "$out"
-  gh api "repos/$GITHUB_REPOSITORY/actions/workflows/mutants.yml/runs?event=schedule&branch=main&status=success&per_page=50" \
-    > "$out/nights.json"
-  for id in $(nights "$out/nights.json"); do
-    gh api "repos/$GITHUB_REPOSITORY/actions/runs/$id/artifacts?name=mutants-night-$id" > "$out/artifacts-$id.json"
-    artifact=$(jq -r '[.artifacts[]? | select(.expired | not) | .id] | first // empty' "$out/artifacts-$id.json")
-    [ -n "$artifact" ] || continue
-    gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/$artifact/zip" > "$out/$id.zip"
-    unzip -q -o "$out/$id.zip" -d "$out/$id"
-    sha=$(green_record "$out/$id/record.json" "$id")
-    if [ -n "$sha" ]; then
-      cp "$out/$id/record.json" "$out/record.json"
-      echo "$sha"
-      return
-    fi
-  done
+tasks() {
+  jq --arg marker "$TASK_MARKER" '
+    if type != "array" then error("the issues response is no array: \(.message // "unexpected body")") else . end
+    | [.[] | select(.pull_request == null and ((.body // "") | contains($marker))) | {number, body}]
+  ' "$1" || die "cannot read the open tasks from $1"
 }
 
 green_line() {
@@ -187,13 +174,13 @@ if [ "${BASH_SOURCE[0]}" = "$0" ]; then
   shift || :
   case "$command" in
     nights) nights "$@" ;;
-    last-green) last_green "$@" ;;
+    tasks) tasks "$@" ;;
     green-record) green_record "$@" ;;
     verdict) verdict "$@" ;;
     route) route "$@" ;;
     task-body) task_body "$@" ;;
     comment-body) comment_body "$@" ;;
     green-line) green_line "$@" ;;
-    *) die "usage: mutants-night.sh nights|last-green|green-record|verdict|route|task-body|comment-body|green-line ..." ;;
+    *) die "usage: mutants-night.sh nights|green-record|tasks|verdict|route|task-body|comment-body|green-line ..." ;;
   esac
 fi

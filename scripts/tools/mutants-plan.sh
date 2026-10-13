@@ -8,6 +8,8 @@ readonly FULL_RUN_TRIGGERS=(
   scripts/tools/mutants-plan.sh
   scripts/tools/mutants-night.sh
   flake.lock
+  flake.nix
+  rust-toolchain.toml
 )
 readonly OUTCOMES=(caught unviable missed timeout)
 readonly MAX_SHARDS=256

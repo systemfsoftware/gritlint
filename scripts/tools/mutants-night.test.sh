@@ -107,6 +107,31 @@ expect "route: with no listing, a named mutant is never called gone, and a named
   '{"update":[{"number":7,"shown":["failure: plan"],"gone":[]}],"file":[]}' \
   sh -c '"$@" | jq -c .' - "${night[@]}" route "$work/record-plan-failed.json" "$fixtures/tasks.json" "$work/absent.txt"
 
+jq -n '[{number: 7, body: "<!-- mutants-night-task -->\nx"}, {number: 9, body: "no marker"},
+  {number: 10, body: null}, {number: 11, body: "<!-- mutants-night-task -->", pull_request: {}}]' > "$work/issues.json"
+expect "tasks: only issues carrying the task marker, never a pull request" \
+  '[{"number":7,"body":"<!-- mutants-night-task -->\nx"}]' \
+  sh -c '"$@" | jq -c .' - "${night[@]}" tasks "$work/issues.json"
+echo '{"message": "Bad credentials"}' > "$work/issues-error.json"
+if "${night[@]}" tasks "$work/issues-error.json" > /dev/null 2>"$work/stderr"; then
+  fail "tasks: an API error body is a failure, not an empty task list" "exited 0"
+elif grep -qF "Bad credentials" "$work/stderr"; then
+  pass "tasks: an API error body is a failure, not an empty task list"
+else
+  fail "tasks: an API error body is a failure, not an empty task list" "stderr lacks the message:" "$(cat "$work/stderr")"
+fi
+
+jq -n --arg tip "$tip" --arg shown "$shown" '{night: 99, sha: $tip, base: null, mode: "full", reason: "no green night",
+  items: [$shown, "failure: shard"], planned: [$shown], missed: [$shown]}' > "$work/record-filed.json"
+echo '[{"sha": "7777777777777777777777777777777777777777", "number": 3, "author": "dev", "title": "t"}]' > "$work/merges.json"
+jq -n --arg shown "$shown" '[$shown, "failure: shard"]' > "$work/items.json"
+"${night[@]}" task-body "$work/record-filed.json" "$work/merges.json" "$work/items.json" o/r '' 5 > "$work/task.md"
+jq -n --rawfile body "$work/task.md" '[{number: 12, body: $body}]' > "$work/issues-filed.json"
+"${night[@]}" tasks "$work/issues-filed.json" > "$work/tasks-filed.json"
+expect "task body: a filed task is found again and the next night routes its items to it" \
+  "$(jq -cn --arg shown "$shown" '{update: [{number: 12, shown: [$shown, "failure: shard"], gone: []}], file: []}')" \
+  sh -c '"$@" | jq -c .' - "${night[@]}" route "$work/record-filed.json" "$work/tasks-filed.json" "$work/absent.txt"
+
 if [ "$failures" -ne 0 ]; then
   echo "$failures failed" >&2
   exit 1

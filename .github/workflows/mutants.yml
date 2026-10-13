@@ -6,7 +6,9 @@
 #   38447766912's per-file timings. At that run's 471 s shard overhead the plan
 #   picks 93 shards and 900 job-min. That is the first night's price, because
 #   no run of this shape has been measured yet. At 160 s overhead, a model for
-#   the Nix store restore, it picks 25 shards and 236 job-min.
+#   the Nix store restore, it picks 25 shards and 236 job-min. Once no run's
+#   shard artifacts are left, the plan falls back to a mean of 19 s a mutant
+#   and 471 s overhead and picks 105 shards and 1023 job-min.
 # - A night that tests a diff: #20's 186 mutants took 197 job-min (run
 #   38447766912, before the restore).
 # - A dispatch costs what its plan prints, after resuming earlier runs at its commit.
@@ -43,6 +45,7 @@ env:
   NIGHT: bash ${{ github.workspace }}/scripts/tools/mutants-night.sh
   TARGET: ${{ inputs.sha || github.sha }}
   BUDGET_SECONDS: 600
+  CANDIDATES_WITHOUT_GREEN: 20
 
 jobs:
   guard:
@@ -142,7 +145,23 @@ jobs:
         run: |
           green=""
           if [ "$EVENT" = schedule ]; then
-            green=$($NIGHT last-green "$RUNNER_TEMP/green")
+            out=$RUNNER_TEMP/green
+            mkdir -p "$out" "$GITHUB_WORKSPACE/plan"
+            gh api --paginate --jq '.workflow_runs[]' \
+              "repos/$GITHUB_REPOSITORY/actions/workflows/mutants.yml/runs?event=schedule&branch=main&status=success&per_page=100" |
+              jq -s '{workflow_runs: .}' > "$out/nights.json"
+            for id in $($NIGHT nights "$out/nights.json"); do
+              artifact=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$id/artifacts?name=mutants-night-$id" \
+                --jq '[.artifacts[] | select(.expired | not) | .id] | first // empty')
+              [ -n "$artifact" ] || continue
+              gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/$artifact/zip" > "$out/$id.zip"
+              unzip -q -o "$out/$id.zip" -d "$out/$id"
+              green=$($NIGHT green-record "$out/$id/record.json" "$id")
+              if [ -n "$green" ]; then
+                cp "$out/$id/record.json" "$GITHUB_WORKSPACE/plan/green-record.json"
+                break
+              fi
+            done
           fi
           $PLAN mode "$EVENT" "$green" "$TARGET" | tee -a "$GITHUB_OUTPUT"
 
@@ -155,7 +174,8 @@ jobs:
             gh api "repos/$GITHUB_REPOSITORY/actions/workflows/mutants.yml/runs?branch=main&per_page=100" > "$RUNNER_TEMP/runs.json"
             runs=$($PLAN resume-runs "$RUNNER_TEMP/runs.json" "$GITHUB_RUN_ID" "$GITHUB_RUN_ATTEMPT" "$TARGET")
             for run in $runs; do
-              gh api "repos/$GITHUB_REPOSITORY/actions/runs/$run/artifacts?per_page=100" > "$RUNNER_TEMP/artifacts-$run.json"
+              gh api --paginate --jq '.artifacts[]' "repos/$GITHUB_REPOSITORY/actions/runs/$run/artifacts?per_page=100" |
+                jq -s '{artifacts: .}' > "$RUNNER_TEMP/artifacts-$run.json"
               $PLAN artifacts "$RUNNER_TEMP/artifacts-$run.json" > "$RUNNER_TEMP/artifacts-$run.txt"
               while read -r id name; do
                 dir="$RUNNER_TEMP/prior/$run-$name"
@@ -173,14 +193,17 @@ jobs:
           echo '{"jobs":[]}' > "$RUNNER_TEMP/timing-jobs.json"
           gh api "repos/$GITHUB_REPOSITORY/actions/workflows/mutants.yml/runs?branch=main&status=completed&per_page=30" > "$RUNNER_TEMP/timing-runs.json"
           for run in $($PLAN timing-source "$RUNNER_TEMP/timing-runs.json"); do
-            gh api "repos/$GITHUB_REPOSITORY/actions/runs/$run/artifacts?per_page=100" > "$RUNNER_TEMP/timing-artifacts.json"
-            $PLAN artifacts "$RUNNER_TEMP/timing-artifacts.json" | grep -E ' mutants\.out-[0-9]+-[0-9]+$' > "$RUNNER_TEMP/timing-names.txt" || continue
+            gh api --paginate --jq '.artifacts[]' "repos/$GITHUB_REPOSITORY/actions/runs/$run/artifacts?per_page=100" |
+              jq -s '{artifacts: .}' > "$RUNNER_TEMP/timing-artifacts.json"
+            $PLAN artifacts "$RUNNER_TEMP/timing-artifacts.json" > "$RUNNER_TEMP/timing-all.txt"
+            grep -E ' mutants\.out-[0-9]+-[0-9]+$' "$RUNNER_TEMP/timing-all.txt" > "$RUNNER_TEMP/timing-names.txt" || continue
             attempt=$(sed -E 's/.* mutants\.out-([0-9]+)-[0-9]+$/\1/' "$RUNNER_TEMP/timing-names.txt" | sort -n | tail -n 1)
             while read -r id name; do
               gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/$id/zip" > "$RUNNER_TEMP/timing-$name.zip"
               unzip -q "$RUNNER_TEMP/timing-$name.zip" -d "$RUNNER_TEMP/timing/$name"
             done < <(grep -E " mutants\.out-$attempt-[0-9]+$" "$RUNNER_TEMP/timing-names.txt")
-            gh api "repos/$GITHUB_REPOSITORY/actions/runs/$run/jobs?per_page=100" > "$RUNNER_TEMP/timing-jobs.json"
+            gh api --paginate --jq '.jobs[]' "repos/$GITHUB_REPOSITORY/actions/runs/$run/jobs?per_page=100" |
+              jq -s '{jobs: .}' > "$RUNNER_TEMP/timing-jobs.json"
             echo "TIMING_RUN=$run" >> "$GITHUB_ENV"
             break
           done
@@ -316,10 +339,10 @@ jobs:
           echo "cargo mutants exited $status"
           $PLAN exit-ok "$status" || exit "$status"
 
-      - name: Outcomes
+      - id: outcomes
         if: always()
         run: $PLAN summary "" tested/mutants.out >> "$GITHUB_STEP_SUMMARY"
-      - name: Upload mutants.out
+      - id: upload
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
@@ -338,7 +361,7 @@ jobs:
           printf -v reproduce "gh workflow run Mutants --repo %s --ref main -f sha=%s -f packages=%q (the plan predicts %s job-minutes for these packages)" \
             "$GITHUB_REPOSITORY" "$TARGET" "$PACKAGES" "$MINUTES"
           $PLAN job-report "shard $SHARD" "$JOB_START" "$(date +%s)" \
-            "store=mutants-setup load=mutants-setup tools=mutants-setup download=mutants-setup mutants=mutants-run" \
+            "store=mutants-setup load=mutants-setup tools=mutants-setup download=mutants-setup mutants=mutants-run outcomes=mutants-report upload=mutants-report" \
             "$reproduce" "$RUNNER_TEMP/steps.json" >> "$GITHUB_STEP_SUMMARY"
 
   report:
@@ -388,8 +411,8 @@ jobs:
             echo
             echo "| Job | Wall time | Over the 10-minute target |"
             echo "| --- | --- | --- |"
-            gh api "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/attempts/$GITHUB_RUN_ATTEMPT/jobs?per_page=100" |
-              jq -r --argjson budget "$BUDGET_SECONDS" '.jobs[] | select(.completed_at != null and .started_at != null)
+            gh api --paginate --jq '.jobs[]' "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/attempts/$GITHUB_RUN_ATTEMPT/jobs?per_page=100" |
+              jq -r --argjson budget "$BUDGET_SECONDS" 'select(.completed_at != null and .started_at != null)
                 | ((.completed_at | fromdate) - (.started_at | fromdate)) as $wall
                 | "| \(.name) (\(.conclusion)) | \($wall) s | \(if $wall > $budget then "yes" else "no" end) |"'
           } > "$RUNNER_TEMP/outcomes.md"
@@ -405,16 +428,24 @@ jobs:
           REASON: ${{ needs.plan.outputs.reason }}
         run: |
           printf '%s' "$NEEDS" > "$RUNNER_TEMP/needs.json"
-          green=$($NIGHT last-green "$RUNNER_TEMP/green")
+          green=""
           base_record=/dev/null
-          [ -n "$green" ] && base_record=$RUNNER_TEMP/green/record.json
+          if [ -f plan/green-record.json ]; then
+            base_record=plan/green-record.json
+            green=$(jq -r .sha "$base_record")
+          fi
           mkdir -p night
           $NIGHT verdict "$GITHUB_RUN_ID" "$GITHUB_RUN_ATTEMPT" "$TARGET" "$green" "$base_record" "${MODE:-unplanned}" \
             "${REASON:-the plan did not finish}" plan/mutants.txt "$RUNNER_TEMP/tested" plan "$RUNNER_TEMP/needs.json" \
             > "$RUNNER_TEMP/verdict.json"
-          for commit in $(git log --first-parent --format=%H "${green:+$green..}$TARGET"); do
-            gh api "repos/$GITHUB_REPOSITORY/commits/$commit/pulls" |
-              jq -c --arg sha "$commit" '{sha: $sha, number: (.[0].number // null), author: (.[0].user.login // null), title: (.[0].title // null)}'
+          if [ -n "$green" ]; then
+            range=("$green..$TARGET")
+          else
+            range=(-n "$CANDIDATES_WITHOUT_GREEN" "$TARGET")
+          fi
+          for commit in $(git log --first-parent --format=%H "${range[@]}"); do
+            pulls=$(gh api "repos/$GITHUB_REPOSITORY/commits/$commit/pulls") || pulls='[]'
+            jq -c --arg sha "$commit" '{sha: $sha, number: (.[0].number // null), author: (.[0].user.login // null), title: (.[0].title // null)}' <<<"$pulls"
           done | jq -s . > "$RUNNER_TEMP/merges.json"
           jq --slurpfile merges "$RUNNER_TEMP/merges.json" '. + {merges: $merges[0], tasks: []}' \
             "$RUNNER_TEMP/verdict.json" > night/record.json
@@ -425,9 +456,9 @@ jobs:
           PACKAGES: ${{ needs.plan.outputs.packages }}
           MINUTES: ${{ needs.plan.outputs.full-minutes || 'an unknown number of' }}
         run: |
-          gh api "repos/$GITHUB_REPOSITORY/issues?state=open&creator=github-actions%5Bbot%5D&per_page=100" |
-            jq '[.[] | select(.pull_request == null and ((.body // "") | contains("<!-- mutants-night-task -->"))) | {number, body}]' \
-            > "$RUNNER_TEMP/tasks.json"
+          gh api --paginate --jq '.[]' "repos/$GITHUB_REPOSITORY/issues?state=open&creator=github-actions%5Bbot%5D&per_page=100" |
+            jq -s . > "$RUNNER_TEMP/issues.json"
+          $NIGHT tasks "$RUNNER_TEMP/issues.json" > "$RUNNER_TEMP/tasks.json"
           $NIGHT route night/record.json "$RUNNER_TEMP/tasks.json" plan/all.txt > "$RUNNER_TEMP/route.json"
           tasks=()
           while read -r update; do
@@ -454,6 +485,7 @@ jobs:
           name: mutants-night-${{ github.run_id }}
           path: night/record.json
           if-no-files-found: error
+          overwrite: true
       - id: verdict
         if: github.event_name == 'schedule'
         run: |
