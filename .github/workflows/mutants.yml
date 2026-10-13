@@ -1,34 +1,85 @@
+# Cost, one night's run plus each dispatch. Merges price nothing: main took 18
+# first-parent commits from 2026-10-06T20:00Z to 2026-10-13T20:00Z and starts
+# no run. Run minutes are the sum of the jobs' wall times.
+# - A night that tests everything (no green night yet, or a change to this
+#   lane's inputs): modelled over the 627 mutants at 3919672c8 with run
+#   38447766912's per-file timings. At that run's 471 s shard overhead the plan
+#   picks 93 shards and 900 job-min. That is the first night's price, because
+#   no run of this shape has been measured yet. At 160 s overhead, a model for
+#   the Nix store restore, it picks 25 shards and 236 job-min.
+# - A night that tests a diff: #20's 186 mutants took 197 job-min (run
+#   38447766912, before the restore).
+# - A dispatch costs what its plan prints, after resuming earlier runs at its commit.
 name: Mutants
+run-name: Mutants ${{ inputs.sha || github.sha }}${{ inputs.night && format(' for {0}', inputs.night) || '' }}
 
 on:
-  push:
-    branches: [main]
+  schedule:
+    - cron: "17 3 * * *"
   workflow_dispatch:
     inputs:
-      mode:
-        description: "full: every mutant. in-diff: the mutants in the diff from base, or from the last green main run."
-        type: choice
-        options: [full, in-diff]
-        default: full
-      base:
-        description: "in-diff only: the commit to diff from. Empty means the last green main run."
+      sha:
+        description: A commit main reaches, as 40 hex digits. Empty means main's tip.
+        type: string
+        required: false
+      packages:
+        description: 'JSON array of package names to plan, such as ["gritlint_core"]. Empty means every package.'
+        type: string
+        required: false
+      night:
+        description: The night's run id a re-test is for. A re-test resumes nothing. Empty for any other dispatch.
         type: string
         required: false
 
 concurrency:
-  group: mutants-${{ github.event_name == 'push' && github.sha || github.ref }}
+  group: mutants-${{ github.run_id }}
   cancel-in-progress: false
 
 permissions:
   contents: read
 
 env:
-  CARGO_MUTANTS: nix develop --command nix shell --inputs-from . nixpkgs#cargo-mutants --command cargo mutants
-  PLAN: bash scripts/tools/mutants-plan.sh
+  PLAN: bash ${{ github.workspace }}/scripts/tools/mutants-plan.sh
+  NIGHT: bash ${{ github.workspace }}/scripts/tools/mutants-night.sh
+  TARGET: ${{ inputs.sha || github.sha }}
+  BUDGET_SECONDS: 600
 
 jobs:
+  guard:
+    name: guard
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    defaults:
+      run:
+        shell: bash
+    env:
+      DEFAULT: ${{ github.event.repository.default_branch || github.ref_name }}
+      SHA: ${{ inputs.sha }}
+      NIGHT_ID: ${{ inputs.night }}
+    steps:
+      - id: start
+        run: echo "JOB_START=$(date +%s)" >> "$GITHUB_ENV"
+      - id: checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - id: main-only
+        run: $PLAN guard "$GITHUB_REF" "$DEFAULT" "$SHA" "$NIGHT_ID"
+      - name: Job report
+        if: always()
+        env:
+          STEPS: ${{ toJSON(steps) }}
+        run: |
+          printf '%s' "$STEPS" > "$RUNNER_TEMP/steps.json"
+          printf -v reproduce 'bash scripts/tools/mutants-plan.sh guard %q %q %q %q' \
+            "${GITHUB_REF//[^0-9A-Za-z\/._-]/?}" "$DEFAULT" "${SHA//[^0-9A-Za-z]/?}" "${NIGHT_ID//[^0-9A-Za-z]/?}"
+          $PLAN job-report guard "$JOB_START" "$(date +%s)" "main-only=mutants-off-main" "$reproduce" \
+            "$RUNNER_TEMP/steps.json" >> "$GITHUB_STEP_SUMMARY"
+
   plan:
     name: plan
+    needs: guard
     runs-on: ubuntu-latest
     timeout-minutes: 60
     permissions:
@@ -39,98 +90,168 @@ jobs:
         shell: bash
     env:
       GH_TOKEN: ${{ github.token }}
+      PACKAGES: ${{ inputs.packages }}
+      NIGHT_ID: ${{ inputs.night }}
     outputs:
       n: ${{ steps.list.outputs.n }}
       shards: ${{ steps.list.outputs.shards }}
       artifact: ${{ steps.list.outputs.artifact }}
+      packages: ${{ steps.list.outputs.packages }}
+      full-minutes: ${{ steps.list.outputs.full-minutes }}
+      mode: ${{ steps.scope.outputs.mode }}
+      base: ${{ steps.scope.outputs.base }}
+      reason: ${{ steps.scope.outputs.reason }}
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - id: start
+        run: echo "JOB_START=$(date +%s)" >> "$GITHUB_ENV"
+      - id: checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           persist-credentials: false
+      - id: checkout-tested
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+          ref: ${{ env.TARGET }}
+          path: tested
           fetch-depth: 0
-      - uses: cachix/install-nix-action@13d8dd58da0234aa297dedd986986ccb8e7f3e24
-      - name: Offline cargo home from the vendor tree
+      - id: nix
+        uses: cachix/install-nix-action@13d8dd58da0234aa297dedd986986ccb8e7f3e24
+      - id: store
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9
+        with:
+          path: ${{ runner.temp }}/nix-store
+          key: nix-store-x86_64-linux-mutants
+          restore-keys: nix-store-x86_64-linux-
+      - id: load
+        if: steps.store.outputs.cache-matched-key != ''
+        run: xargs -a "$RUNNER_TEMP/nix-store/paths" nix copy --no-check-sigs --from "file://$RUNNER_TEMP/nix-store"
+      - id: tools
         run: |
           echo "CARGO_HOME=$RUNNER_TEMP/cargo-home" >> "$GITHUB_ENV"
           mkdir -p "$RUNNER_TEMP/cargo-home"
-          cp "$(nix build --no-link --print-out-paths .#packages.x86_64-linux.gritlint-unwrapped.vendor)/config.toml" "$RUNNER_TEMP/cargo-home/"
-          $CARGO_MUTANTS --version
-      - name: jq from the locked nixpkgs
-        run: nix shell --inputs-from . nixpkgs#jq --command sh -c 'dirname "$(command -v jq)"' >> "$GITHUB_PATH"
+          cp "$(nix build --no-link --print-out-paths ./tested#packages.x86_64-linux.gritlint-unwrapped.vendor)/config.toml" "$RUNNER_TEMP/cargo-home/"
+          tools=$(nix build --no-link --print-out-paths .#packages.x86_64-linux.gritlint-mutants-tools)
+          echo "$tools/bin" >> "$GITHUB_PATH"
+          "$tools/bin/cargo" mutants --version
 
-      - name: Mode
-        id: mode
+      - id: scope
         env:
           EVENT: ${{ github.event_name }}
-          INPUT_MODE: ${{ inputs.mode }}
-          INPUT_BASE: ${{ inputs.base }}
+        working-directory: tested
         run: |
-          gh api "repos/$GITHUB_REPOSITORY/actions/workflows/mutants.yml/runs?branch=main&event=push&status=success&per_page=20" > "$RUNNER_TEMP/green.json" ||
-            { echo "::error::cannot list the successful Mutants runs on main"; exit 1; }
-          green=$($PLAN green-sha "$RUNNER_TEMP/green.json")
-          $PLAN mode "$EVENT" "$INPUT_MODE" "$INPUT_BASE" "$green" "$GITHUB_SHA" | tee -a "$GITHUB_OUTPUT"
+          green=""
+          if [ "$EVENT" = schedule ]; then
+            green=$($NIGHT last-green "$RUNNER_TEMP/green")
+          fi
+          $PLAN mode "$EVENT" "$green" "$TARGET" | tee -a "$GITHUB_OUTPUT"
 
-      - name: Resume from earlier runs at this commit
-        env:
-          BRANCH: ${{ github.ref_name }}
+      - id: resume
         run: |
-          gh api "repos/$GITHUB_REPOSITORY/actions/workflows/mutants.yml/runs?head_sha=$GITHUB_SHA&branch=$BRANCH&per_page=100" > "$RUNNER_TEMP/at-sha.json" ||
-            { echo "::error::cannot list the Mutants runs at $GITHUB_SHA"; exit 1; }
           mkdir -p "$RUNNER_TEMP/prior"
-          runs=$($PLAN prior-runs "$RUNNER_TEMP/at-sha.json" "$GITHUB_RUN_ID" "$GITHUB_RUN_ATTEMPT" "$BRANCH" "$GITHUB_SHA")
-          for run in $runs; do
-            gh api "repos/$GITHUB_REPOSITORY/actions/runs/$run/artifacts?per_page=100" > "$RUNNER_TEMP/artifacts-$run.json"
-            $PLAN artifacts "$RUNNER_TEMP/artifacts-$run.json" > "$RUNNER_TEMP/artifacts-$run.txt"
-            while read -r id name; do
-              dir="$RUNNER_TEMP/prior/$run-$name"
-              gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/$id/zip" > "$dir.zip"
-              unzip -q "$dir.zip" -d "$dir"
-              echo "- run $run, \`$name\`" >> "$RUNNER_TEMP/resumed.md"
-            done < "$RUNNER_TEMP/artifacts-$run.txt"
-          done
+          if [ -n "$NIGHT_ID" ]; then
+            echo "A re-test for night $NIGHT_ID resumes nothing." >> "$RUNNER_TEMP/resumed.md"
+          else
+            gh api "repos/$GITHUB_REPOSITORY/actions/workflows/mutants.yml/runs?branch=main&per_page=100" > "$RUNNER_TEMP/runs.json"
+            runs=$($PLAN resume-runs "$RUNNER_TEMP/runs.json" "$GITHUB_RUN_ID" "$GITHUB_RUN_ATTEMPT" "$TARGET")
+            for run in $runs; do
+              gh api "repos/$GITHUB_REPOSITORY/actions/runs/$run/artifacts?per_page=100" > "$RUNNER_TEMP/artifacts-$run.json"
+              $PLAN artifacts "$RUNNER_TEMP/artifacts-$run.json" > "$RUNNER_TEMP/artifacts-$run.txt"
+              while read -r id name; do
+                dir="$RUNNER_TEMP/prior/$run-$name"
+                gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/$id/zip" > "$dir.zip"
+                unzip -q "$dir.zip" -d "$dir"
+                echo "- run $run, \`$name\`" >> "$RUNNER_TEMP/resumed.md"
+              done < "$RUNNER_TEMP/artifacts-$run.txt"
+            done
+          fi
           shopt -s nullglob
           $PLAN merge plan "$RUNNER_TEMP"/prior/*/
 
-      - name: Mutants to test
-        id: list
-        env:
-          MODE: ${{ steps.mode.outputs.mode }}
-          BASE: ${{ steps.mode.outputs.base }}
-          REASON: ${{ steps.mode.outputs.reason }}
+      - id: timings
         run: |
+          echo '{"jobs":[]}' > "$RUNNER_TEMP/timing-jobs.json"
+          gh api "repos/$GITHUB_REPOSITORY/actions/workflows/mutants.yml/runs?branch=main&status=completed&per_page=30" > "$RUNNER_TEMP/timing-runs.json"
+          for run in $($PLAN timing-source "$RUNNER_TEMP/timing-runs.json"); do
+            gh api "repos/$GITHUB_REPOSITORY/actions/runs/$run/artifacts?per_page=100" > "$RUNNER_TEMP/timing-artifacts.json"
+            $PLAN artifacts "$RUNNER_TEMP/timing-artifacts.json" | grep -E ' mutants\.out-[0-9]+-[0-9]+$' > "$RUNNER_TEMP/timing-names.txt" || continue
+            attempt=$(sed -E 's/.* mutants\.out-([0-9]+)-[0-9]+$/\1/' "$RUNNER_TEMP/timing-names.txt" | sort -n | tail -n 1)
+            while read -r id name; do
+              gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/$id/zip" > "$RUNNER_TEMP/timing-$name.zip"
+              unzip -q "$RUNNER_TEMP/timing-$name.zip" -d "$RUNNER_TEMP/timing/$name"
+            done < <(grep -E " mutants\.out-$attempt-[0-9]+$" "$RUNNER_TEMP/timing-names.txt")
+            gh api "repos/$GITHUB_REPOSITORY/actions/runs/$run/jobs?per_page=100" > "$RUNNER_TEMP/timing-jobs.json"
+            echo "TIMING_RUN=$run" >> "$GITHUB_ENV"
+            break
+          done
+          shopt -s nullglob
+          $PLAN timings "$RUNNER_TEMP/timing-jobs.json" "$RUNNER_TEMP"/timing/*/ > plan/timings.json
+
+      - id: list
+        env:
+          MODE: ${{ steps.scope.outputs.mode }}
+          BASE: ${{ steps.scope.outputs.base }}
+          REASON: ${{ steps.scope.outputs.reason }}
+        run: |
+          plan=$GITHUB_WORKSPACE/plan
+          cd tested
+          cargo mutants --workspace --list --json > "$RUNNER_TEMP/list.json"
+          $PLAN packages "$RUNNER_TEMP/list.json" "$PACKAGES" > "$plan/args"
+          mapfile -t flags < "$plan/args"
           if [ "$MODE" = in-diff ]; then
-            git diff "$BASE" HEAD -- '*.rs' > plan/mutants.diff
+            git diff "$BASE" HEAD -- '*.rs' > "$plan/mutants.diff"
           fi
-          total=$($CARGO_MUTANTS --workspace --list | wc -l)
+          cargo mutants --workspace "${flags[@]}" --list > "$plan/all.txt"
+          [ -s "$plan/all.txt" ] || { echo "::error title=mutants-plan-list::examine_globs in .cargo/mutants.toml selects no mutant"; exit 1; }
           mkdir mutants.out
-          cp plan/*.txt mutants.out/
-          $CARGO_MUTANTS --workspace --list --iterate $([ -f plan/mutants.diff ] && echo --in-diff plan/mutants.diff) > plan/mutants.txt
-          count=$(wc -l < plan/mutants.txt)
-          shards=$($PLAN shards "$total" "$count")
+          cp "$plan"/{caught,unviable,missed,timeout,previously_caught}.txt mutants.out/
+          in_diff=()
+          [ ! -f "$plan/mutants.diff" ] || in_diff=(--in-diff "$plan/mutants.diff")
+          cargo mutants --workspace "${flags[@]}" --list --iterate "${in_diff[@]}" > "$plan/mutants.txt"
+          sizing=$($PLAN shards "$plan/timings.json" "$plan/mutants.txt" "$BUDGET_SECONDS")
+          full=$($PLAN shards "$plan/timings.json" "$plan/all.txt" "$BUDGET_SECONDS")
+          while IFS='=' read -r key value; do
+            declare "$key=$value"
+          done < <(grep -E '^(n|predicted|over|minutes|source)=' <<<"$sizing")
           {
             echo "artifact=mutants-plan-$GITHUB_RUN_ATTEMPT"
-            echo "$shards"
+            grep -E '^(n|shards)=' <<<"$sizing"
+            echo "packages=$(sed 's/^--package=//' "$plan/args" | jq -R . | jq -sc .)"
+            echo "full-minutes=$(grep '^minutes=' <<<"$full" | cut -d= -f2)"
           } >> "$GITHUB_OUTPUT"
-          eval "$(grep -E '^(capacity|n)=' <<<"$shards")"
           {
             echo "**Mode:** $MODE${BASE:+ from \`$BASE\`} ($REASON)"
             echo
-            echo "**Mutants:** $total listed, $count left to test after earlier runs at this commit, in $n shards of at most $capacity."
+            echo "**Mutants:** $(wc -l < "$plan/all.txt") listed for $(sed 's/^--package=//' "$plan/args" | paste -sd, -), $(wc -l < "$plan/mutants.txt") left to test after earlier runs at this commit, in $n shards."
+            echo
+            echo "**Sizing:** target 10 minutes a job, never a timeout. The heaviest shard is predicted at ${predicted} s$([ "$over" = true ] && echo ", over the target because one mutant and the overhead do not fit") and the run at $minutes job-minutes, from $source timings${TIMING_RUN:+ (run $TIMING_RUN)}."
             if [ -s "$RUNNER_TEMP/resumed.md" ]; then
               echo
               echo "**Resumed from:**"
               cat "$RUNNER_TEMP/resumed.md"
             fi
           } >> "$GITHUB_STEP_SUMMARY"
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+      - id: upload
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
           name: ${{ steps.list.outputs.artifact }}
           path: plan
           if-no-files-found: error
+      - name: Job report
+        if: always()
+        env:
+          STEPS: ${{ toJSON(steps) }}
+        run: |
+          printf '%s' "$STEPS" > "$RUNNER_TEMP/steps.json"
+          printf -v reproduce "gh workflow run Mutants --repo %s --ref main -f sha=%s%s" "$GITHUB_REPOSITORY" "$TARGET" \
+            "$([ -n "$PACKAGES" ] && printf " -f packages=%q" "$PACKAGES")"
+          $PLAN job-report plan "$JOB_START" "$(date +%s)" \
+            "store=mutants-setup load=mutants-setup tools=mutants-setup scope=mutants-plan-history resume=mutants-plan-history timings=mutants-plan-history list=mutants-plan-list upload=mutants-setup" \
+            "$reproduce" "$RUNNER_TEMP/steps.json" >> "$GITHUB_STEP_SUMMARY"
 
   shard:
     name: cargo mutants · shard ${{ matrix.shard }}
-    needs: plan
+    needs: [guard, plan]
     if: needs.plan.outputs.n != '0'
     runs-on: ubuntu-latest
     timeout-minutes: 60
@@ -142,68 +263,216 @@ jobs:
       run:
         shell: bash
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - id: start
+        run: echo "JOB_START=$(date +%s)" >> "$GITHUB_ENV"
+      - id: checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           persist-credentials: false
-      - uses: cachix/install-nix-action@13d8dd58da0234aa297dedd986986ccb8e7f3e24
-      - name: Offline cargo home from the vendor tree
+      - id: checkout-tested
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+          ref: ${{ env.TARGET }}
+          path: tested
+      - id: nix
+        uses: cachix/install-nix-action@13d8dd58da0234aa297dedd986986ccb8e7f3e24
+      - id: store
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9
+        with:
+          path: ${{ runner.temp }}/nix-store
+          key: nix-store-x86_64-linux-mutants
+          restore-keys: nix-store-x86_64-linux-
+      - id: load
+        if: steps.store.outputs.cache-matched-key != ''
+        run: xargs -a "$RUNNER_TEMP/nix-store/paths" nix copy --no-check-sigs --from "file://$RUNNER_TEMP/nix-store"
+      - id: tools
         run: |
           echo "CARGO_HOME=$RUNNER_TEMP/cargo-home" >> "$GITHUB_ENV"
           mkdir -p "$RUNNER_TEMP/cargo-home"
-          cp "$(nix build --no-link --print-out-paths .#packages.x86_64-linux.gritlint-unwrapped.vendor)/config.toml" "$RUNNER_TEMP/cargo-home/"
-          $CARGO_MUTANTS --version
-      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
+          cp "$(nix build --no-link --print-out-paths ./tested#packages.x86_64-linux.gritlint-unwrapped.vendor)/config.toml" "$RUNNER_TEMP/cargo-home/"
+          echo "$(nix build --no-link --print-out-paths .#packages.x86_64-linux.gritlint-mutants-tools)/bin" >> "$GITHUB_PATH"
+      - id: download
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
         with:
           name: ${{ needs.plan.outputs.artifact }}
           path: plan
 
-      - name: cargo mutants
-        timeout-minutes: 60
+      - id: mutants
         env:
           SHARD: ${{ matrix.shard }}
           N: ${{ needs.plan.outputs.n }}
+        working-directory: tested
         run: |
+          plan=$GITHUB_WORKSPACE/plan
+          mapfile -t flags < "$plan/args"
           mkdir mutants.out
-          cp plan/*.txt mutants.out/
+          cp "$plan"/{caught,unviable,missed,timeout,previously_caught}.txt mutants.out/
           status=0
-          $CARGO_MUTANTS --workspace --iterate --shard "$SHARD/$N" --sharding round-robin $([ -f plan/mutants.diff ] && echo --in-diff plan/mutants.diff) || status=$?
+          in_diff=()
+          [ ! -f "$plan/mutants.diff" ] || in_diff=(--in-diff "$plan/mutants.diff")
+          cargo mutants --workspace "${flags[@]}" --iterate --shard "$SHARD/$N" --sharding round-robin "${in_diff[@]}" ||
+            status=$?
           echo "cargo mutants exited $status"
           $PLAN exit-ok "$status" || exit "$status"
 
       - name: Outcomes
         if: always()
-        run: $PLAN summary "" mutants.out >> "$GITHUB_STEP_SUMMARY"
+        run: $PLAN summary "" tested/mutants.out >> "$GITHUB_STEP_SUMMARY"
       - name: Upload mutants.out
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
           name: mutants.out-${{ github.run_attempt }}-${{ matrix.shard }}
-          path: mutants.out
+          path: tested/mutants.out
           if-no-files-found: ignore
+      - name: Job report
+        if: always()
+        env:
+          STEPS: ${{ toJSON(steps) }}
+          PACKAGES: ${{ needs.plan.outputs.packages }}
+          MINUTES: ${{ needs.plan.outputs.full-minutes }}
+          SHARD: ${{ matrix.shard }}
+        run: |
+          printf '%s' "$STEPS" > "$RUNNER_TEMP/steps.json"
+          printf -v reproduce "gh workflow run Mutants --repo %s --ref main -f sha=%s -f packages=%q (the plan predicts %s job-minutes for these packages)" \
+            "$GITHUB_REPOSITORY" "$TARGET" "$PACKAGES" "$MINUTES"
+          $PLAN job-report "shard $SHARD" "$JOB_START" "$(date +%s)" \
+            "store=mutants-setup load=mutants-setup tools=mutants-setup download=mutants-setup mutants=mutants-run" \
+            "$reproduce" "$RUNNER_TEMP/steps.json" >> "$GITHUB_STEP_SUMMARY"
 
-  summary:
-    name: summary
-    needs: [plan, shard]
-    if: always() && needs.plan.result == 'success'
+  report:
+    name: report
+    needs: [guard, plan, shard]
+    if: always() && needs.guard.result == 'success'
     runs-on: ubuntu-latest
     timeout-minutes: 60
+    permissions:
+      contents: read
+      actions: read
+      issues: write
+      pull-requests: read
     defaults:
       run:
         shell: bash
+    env:
+      GH_TOKEN: ${{ github.token }}
+      EVENT: ${{ github.event_name }}
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - id: start
+        run: echo "JOB_START=$(date +%s)" >> "$GITHUB_ENV"
+      - id: checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           persist-credentials: false
-      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
+          fetch-depth: 0
+      - id: download-plan
+        if: needs.plan.result == 'success'
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
         with:
           name: ${{ needs.plan.outputs.artifact }}
           path: plan
-      - if: needs.plan.outputs.n != '0'
+      - id: download-shards
+        if: needs.plan.result == 'success' && needs.plan.outputs.n != '0'
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
         with:
           pattern: mutants.out-*
           path: shards
-      - name: Outcomes over every shard
+
+      - id: outcomes
         run: |
           shopt -s nullglob
-          $PLAN summary plan shards/*/ >> "$GITHUB_STEP_SUMMARY"
+          $PLAN merge "$RUNNER_TEMP/tested" shards/*/
+          {
+            [ -d plan ] && $PLAN summary plan shards/*/
+            echo
+            echo "| Job | Wall time | Over the 10-minute target |"
+            echo "| --- | --- | --- |"
+            gh api "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/attempts/$GITHUB_RUN_ATTEMPT/jobs?per_page=100" |
+              jq -r --argjson budget "$BUDGET_SECONDS" '.jobs[] | select(.completed_at != null and .started_at != null)
+                | ((.completed_at | fromdate) - (.started_at | fromdate)) as $wall
+                | "| \(.name) (\(.conclusion)) | \($wall) s | \(if $wall > $budget then "yes" else "no" end) |"'
+          } > "$RUNNER_TEMP/outcomes.md"
+          if [ "$EVENT" != schedule ]; then
+            cat "$RUNNER_TEMP/outcomes.md" >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - id: record
+        if: github.event_name == 'schedule'
+        env:
+          NEEDS: ${{ toJSON(needs) }}
+          MODE: ${{ needs.plan.outputs.mode }}
+          REASON: ${{ needs.plan.outputs.reason }}
+        run: |
+          printf '%s' "$NEEDS" > "$RUNNER_TEMP/needs.json"
+          green=$($NIGHT last-green "$RUNNER_TEMP/green")
+          base_record=/dev/null
+          [ -n "$green" ] && base_record=$RUNNER_TEMP/green/record.json
+          mkdir -p night
+          $NIGHT verdict "$GITHUB_RUN_ID" "$GITHUB_RUN_ATTEMPT" "$TARGET" "$green" "$base_record" "${MODE:-unplanned}" \
+            "${REASON:-the plan did not finish}" plan/mutants.txt "$RUNNER_TEMP/tested" plan "$RUNNER_TEMP/needs.json" \
+            > "$RUNNER_TEMP/verdict.json"
+          for commit in $(git log --first-parent --format=%H "${green:+$green..}$TARGET"); do
+            gh api "repos/$GITHUB_REPOSITORY/commits/$commit/pulls" |
+              jq -c --arg sha "$commit" '{sha: $sha, number: (.[0].number // null), author: (.[0].user.login // null), title: (.[0].title // null)}'
+          done | jq -s . > "$RUNNER_TEMP/merges.json"
+          jq --slurpfile merges "$RUNNER_TEMP/merges.json" '. + {merges: $merges[0], tasks: []}' \
+            "$RUNNER_TEMP/verdict.json" > night/record.json
+
+      - id: route
+        if: github.event_name == 'schedule'
+        env:
+          PACKAGES: ${{ needs.plan.outputs.packages }}
+          MINUTES: ${{ needs.plan.outputs.full-minutes || 'an unknown number of' }}
+        run: |
+          gh api "repos/$GITHUB_REPOSITORY/issues?state=open&creator=github-actions%5Bbot%5D&per_page=100" |
+            jq '[.[] | select(.pull_request == null and ((.body // "") | contains("<!-- mutants-night-task -->"))) | {number, body}]' \
+            > "$RUNNER_TEMP/tasks.json"
+          $NIGHT route night/record.json "$RUNNER_TEMP/tasks.json" plan/all.txt > "$RUNNER_TEMP/route.json"
+          tasks=()
+          while read -r update; do
+            number=$(jq -r .number <<<"$update")
+            $NIGHT comment-body night/record.json "$(jq -c .shown <<<"$update")" "$(jq -c .gone <<<"$update")" \
+              "$GITHUB_REPOSITORY" > "$RUNNER_TEMP/comment.md"
+            gh api "repos/$GITHUB_REPOSITORY/issues/$number/comments" -F body=@"$RUNNER_TEMP/comment.md" > /dev/null
+            [ "$(jq '.shown | length' <<<"$update")" -gt 0 ] && tasks+=("$number")
+          done < <(jq -c '.update[]' "$RUNNER_TEMP/route.json")
+          if [ "$(jq '.file | length' "$RUNNER_TEMP/route.json")" -gt 0 ]; then
+            jq '.file' "$RUNNER_TEMP/route.json" > "$RUNNER_TEMP/items.json"
+            $NIGHT task-body night/record.json "$RUNNER_TEMP/merges.json" "$RUNNER_TEMP/items.json" "$GITHUB_REPOSITORY" \
+              "$PACKAGES" "$MINUTES" > "$RUNNER_TEMP/task.md"
+            tasks+=("$(gh api "repos/$GITHUB_REPOSITORY/issues" -f title="Mutants: red night $GITHUB_RUN_ID" \
+              -F body=@"$RUNNER_TEMP/task.md" --jq .number)")
+          fi
+          printf '%s\n' "${tasks[@]}" | jq -R 'select(length > 0) | tonumber' | jq -s . > "$RUNNER_TEMP/task-numbers.json"
+          jq --slurpfile tasks "$RUNNER_TEMP/task-numbers.json" '.tasks = $tasks[0]' night/record.json > "$RUNNER_TEMP/record.json"
+          mv "$RUNNER_TEMP/record.json" night/record.json
+      - id: upload-record
+        if: always() && github.event_name == 'schedule' && steps.record.outcome == 'success'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: mutants-night-${{ github.run_id }}
+          path: night/record.json
+          if-no-files-found: error
+      - id: verdict
+        if: github.event_name == 'schedule'
+        run: |
+          if [ "$(jq -r .verdict night/record.json)" = green ]; then
+            $NIGHT green-line night/record.json >> "$GITHUB_STEP_SUMMARY"
+          else
+            cat "$RUNNER_TEMP/outcomes.md" >> "$GITHUB_STEP_SUMMARY"
+            echo "::error title=mutants-night-red::$(jq -r '.items | join("; ")' night/record.json)"
+            exit 1
+          fi
+      - name: Job report
+        if: always()
+        env:
+          STEPS: ${{ toJSON(steps) }}
+          NEEDS: ${{ toJSON(needs) }}
+        run: |
+          printf '%s' "$STEPS" > "$RUNNER_TEMP/steps.json"
+          failed=$(jq -r '[to_entries[] | select(.value.result == "failure" or .value.result == "cancelled") | "\(.key) (\(.value.result))"] | join(", ")' <<<"$NEEDS")
+          $PLAN job-report report "$JOB_START" "$(date +%s)" \
+            "download-plan=mutants-report download-shards=mutants-report outcomes=mutants-report record=mutants-night-record route=mutants-night-task upload-record=mutants-night-record verdict=mutants-night-red" \
+            "the jobs this report reads: ${failed:-none failed}; reproduce with gh workflow run Mutants --repo $GITHUB_REPOSITORY --ref main -f sha=$TARGET" \
+            "$RUNNER_TEMP/steps.json" >> "$GITHUB_STEP_SUMMARY"

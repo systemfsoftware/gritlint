@@ -1,0 +1,14 @@
+[
+ {
+  "package": "core",
+  "file": "src/a.rs"
+ },
+ {
+  "package": "util",
+  "file": "src/u.rs"
+ },
+ {
+  "package": "core",
+  "file": "src/b.rs"
+ }
+]
