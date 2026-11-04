@@ -1,0 +1,35 @@
+{
+ "total_count": 5,
+ "jobs": [
+  {
+   "name": "plan",
+   "conclusion": "success",
+   "started_at": "2026-10-13T10:00:00Z",
+   "completed_at": "2026-10-13T10:05:00Z"
+  },
+  {
+   "name": "cargo mutants \u00b7 shard 0",
+   "conclusion": "success",
+   "started_at": "2026-10-13T10:05:00Z",
+   "completed_at": "2026-10-13T10:10:00Z"
+  },
+  {
+   "name": "cargo mutants \u00b7 shard 1",
+   "conclusion": "success",
+   "started_at": "2026-10-13T10:05:00Z",
+   "completed_at": "2026-10-13T10:08:20Z"
+  },
+  {
+   "name": "cargo mutants \u00b7 shard 2",
+   "conclusion": "failure",
+   "started_at": "2026-10-13T10:05:00Z",
+   "completed_at": "2026-10-13T11:05:00Z"
+  },
+  {
+   "name": "summary",
+   "conclusion": "success",
+   "started_at": "2026-10-13T10:10:00Z",
+   "completed_at": "2026-10-13T10:10:10Z"
+  }
+ ]
+}
