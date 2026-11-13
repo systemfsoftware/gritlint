@@ -52,7 +52,6 @@ jobs:
           extra_nix_config: |
             extra-substituters = ${{ env.NIX_CACHE_URL }}
             extra-trusted-public-keys = ${{ env.NIX_CACHE_PUBLIC_KEY }}
-            fallback = true
 
       - name: The signing key is the cache's key
         env:
