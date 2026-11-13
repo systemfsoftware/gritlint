@@ -18,12 +18,10 @@ jobs:
     name: Nix · ${{ matrix.system }}
     strategy:
       fail-fast: false
+      # A pull request builds the x86_64 output alone; a Mergify queue draft and a push to main also build aarch64 and
+      # compare the two systems' release artifacts.
       matrix:
-        include:
-          - system: x86_64-linux
-            runner: ubuntu-latest
-          - system: aarch64-linux
-            runner: ubuntu-24.04-arm
+        include: ${{ fromJSON(github.event_name == 'pull_request' && !startsWith(github.head_ref, 'mergify/merge-queue/') && '[{"system":"x86_64-linux", "runner":"ubuntu-latest"}]' || '[{"system":"x86_64-linux", "runner":"ubuntu-latest"}, {"system":"aarch64-linux", "runner":"ubuntu-24.04-arm"}]') }}
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 60
     env:
@@ -133,6 +131,7 @@ jobs:
   tarballs-match:
     name: Tarball and binaries match across systems
     needs: nix
+    if: github.event_name != 'pull_request' || startsWith(github.head_ref, 'mergify/merge-queue/')
     runs-on: ubuntu-latest
     timeout-minutes: 60
     steps:
