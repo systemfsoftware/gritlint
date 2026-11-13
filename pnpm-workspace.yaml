@@ -1,2 +1,5 @@
 packages:
   - npm/gritlint
+
+# Three days (minutes); the same in every systemfsoftware repo, so producer and consumer gates agree.
+minimumReleaseAge: 4320
