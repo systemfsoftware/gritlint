@@ -2,4 +2,3 @@ packs:
   - source: https://github.com/systemfsoftware/systemfsoftware
     ref: main
     path: compound-packs
-    pack: [boundary-testing, cell-architecture, ci-wall-clock, mutation-discipline, package-topology, schema-laws]
