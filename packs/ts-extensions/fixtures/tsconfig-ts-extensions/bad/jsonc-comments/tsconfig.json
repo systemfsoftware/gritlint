@@ -1,0 +1,8 @@
+// base config
+{
+  /* keep */
+  "compilerOptions": {
+    "strict": true,
+    "allowImportingTsExtensions": true // why
+  }
+}

@@ -1,0 +1,2 @@
+ts-extensions/ts-extension-specifier a.ts:1:1-1:28
+ts-extensions/ts-extension-specifier a.ts:2:1-2:28

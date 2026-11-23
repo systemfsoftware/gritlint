@@ -16,6 +16,12 @@
       "description": "Bundled packs to enable, each mapped to its parameters. A pack that is not listed never runs.",
       "type": "object",
       "properties": {
+        "build-output-imports": {
+          "type": "object",
+          "properties": {},
+          "required": [],
+          "additionalProperties": false
+        },
         "cell-architecture": {
           "type": "object",
           "properties": {},
@@ -60,6 +66,12 @@
             "sharedVitestConfig",
             "sharedVitestConfigFile"
           ],
+          "additionalProperties": false
+        },
+        "ts-extensions": {
+          "type": "object",
+          "properties": {},
+          "required": [],
           "additionalProperties": false
         },
         "typecheck-build-mode": {

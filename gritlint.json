@@ -9,6 +9,8 @@
       "sharedVitestConfigFile": "r\"(?:.*/)?vitest-config/lib/base\\.js\""
     },
     "typecheck-build-mode": {},
+    "ts-extensions": {},
+    "build-output-imports": {},
     "npm-provenance": {
       "repositoryUrl": "`\"git+https://github.com/systemfsoftware/gritlint.git\"`"
     }

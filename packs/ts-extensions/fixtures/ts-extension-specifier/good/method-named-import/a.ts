@@ -1,0 +1,1 @@
+loader.import('./y.ts');
