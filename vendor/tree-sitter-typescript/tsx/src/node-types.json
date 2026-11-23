@@ -3942,7 +3942,7 @@
         ]
       },
       "name": {
-        "multiple": false,
+        "multiple": true,
         "required": false,
         "types": [
           {
@@ -3958,6 +3958,10 @@
       "types": [
         {
           "type": "import",
+          "named": true
+        },
+        {
+          "type": "object",
           "named": true
         },
         {

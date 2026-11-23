@@ -1,7 +1,7 @@
 ---
 reasonCode: import-specifier-ts-extension
 nextAction: Write the specifier without an extension, or with the `.js` extension the emitted file carries, instead of `.ts`, `.tsx`, `.mts` or `.cts`.
-locate: pattern ts_specifier() { r"['\"`](?:\.{1,2}/|/|#|@[^/'\"`]+/[^/'\"`]+/|[^@#/'\"`][^/'\"`]*/)[^'\"`]*\.(?:ts|tsx|mts|cts)(?:[?#][^'\"`]*)?['\"`]" } or { import_statement(source=$source) where { $source <: ts_specifier() }, export_statement(source=$source) where { $source <: ts_specifier() }, call_expression(function=$callee, arguments=$arguments) where { $callee <: r"import", $arguments <: [$first, $...] where { $first <: ts_specifier() } }, import_require_clause(source=$source) where { $source <: ts_specifier() }, import_type() as $type where { $type <: contains ts_specifier() as $source where { $source <: not within type_arguments() as $arguments where { $type <: contains $arguments } } } }
+locate: pattern ts_specifier() { r"['\"`](?:\.{1,2}/|/|#|@[^/'\"`]+/[^/'\"`]+/|[^@#/'\"`][^/'\"`]*/)[^'\"`]*\.(?:ts|tsx|mts|cts)(?:[?#][^'\"`]*)?['\"`]" } or { import_statement(source=$source) where { $source <: ts_specifier() }, export_statement(source=$source) where { $source <: ts_specifier() }, call_expression(function=$callee, arguments=$arguments) where { $callee <: r"import", $arguments <: [$first, $...] where { $first <: ts_specifier() } }, import_require_clause(source=$source) where { $source <: ts_specifier() }, import_type() as $type where { $type <: contains ts_specifier() as $source where { $source <: not within type_arguments() as $arguments where { $type <: contains $arguments }, $source <: not within object() as $attributes where { $type <: contains $attributes } } } }
 ---
 
 # An import specifier names no TypeScript file
@@ -42,7 +42,7 @@ or {
     $arguments <: [$first, $...] where { $first <: ts_specifier() }
   },
   import_require_clause(source=$source) where { $source <: ts_specifier() },
-  import_type() as $type where { $type <: contains ts_specifier() as $source where { $source <: not within type_arguments() as $arguments where { $type <: contains $arguments } } }
+  import_type() as $type where { $type <: contains ts_specifier() as $source where { $source <: not within type_arguments() as $arguments where { $type <: contains $arguments }, $source <: not within object() as $attributes where { $type <: contains $attributes } } }
 }
 
 pattern ts_specifier() {

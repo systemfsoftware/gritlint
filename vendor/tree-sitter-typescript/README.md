@@ -34,8 +34,11 @@ Four valid TypeScript constructs failed to parse, and one such file stopped ever
 scan of the tree that held it:
 
 - `<out T, in U, in out W>`: a type parameter with a variance annotation.
-- `import('x').T` and `import('x').Box<A>`: an `import()` type with a member.
-  It is a new `import_type` node (`argument`, `name`, optional `type_arguments`).
+- `import('x').T`, `import('x').A.B.C<A>` and `import('x', { with: ... }).T`: an
+  `import()` type with an optional attributes object, a qualified member name and
+  type arguments. It is a new `import_type` node (`argument`, repeated `name`,
+  optional `type_arguments`). A type assertion that starts with one
+  (`<import('x').T>y`) is not parsed.
 - `export type * from 'x'` and `export type * as ns from 'x'`.
 - JSX text and attribute strings that hold an `&` that does not start an entity
   (`P&L`, `a&b`): the entity token needs its closing `;`, and a bare `&` was
@@ -43,17 +46,17 @@ scan of the tree that held it:
 
 `grammar.js` is not the source for these: the engine's `grammar.js` builds only
 against a `tree-sitter-javascript` revision that is no longer published, so the
-changes are made to the resolved `src/grammar.json` of both parsers, and each
-`src/` is regenerated from that file with `tree-sitter generate --abi 14
-src/grammar.json` (tree-sitter 0.27 CLI; the runtime stays `~0.20`, which loads
-ABI 14). Both parsers get the same edits, and the `&` change applies to `tsx`
-only. The edits are:
+changes are made to the resolved `src/grammar.json` of both parsers by
+`patch-grammar.py` (idempotent), and each `src/` is regenerated from that file
+with `tree-sitter generate --abi 14 src/grammar.json` (tree-sitter 0.27 CLI; the
+runtime stays `~0.20`, which loads ABI 14). Both parsers get the same edits, and
+the `&` change applies to `tsx` only. The edits are:
 
 - `type_parameter`: `choice('in', 'out', seq('in', 'out'), blank)` after the
   optional `const`.
 - `export_statement`: two alternatives, `export type * <from clause>` and
   `export type <namespace export> <from clause>`.
-- `import_type` (a right-associative rule) added to `_primary_type`, with the
+- `import_type` (a right-associative rule, defined in `patch-grammar.py`) added to `_primary_type`, with the
   conflict `[primary_expression, import_type]` for `<import('x')>` against `x as
   import('x').T`.
 - `tsx` only: `jsx_text` also accepts a lone `&`, and a JSX string accepts a lone
