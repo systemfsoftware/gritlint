@@ -1,0 +1,6 @@
+{
+  "compilerOptions": {
+    "lib": ["DOM"],
+    "plugins": [{ "extends": "./tsconfig.node.json" }]
+  }
+}

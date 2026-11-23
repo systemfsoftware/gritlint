@@ -1,0 +1,6 @@
+{
+  "extends": "@scope/tsconfig/node.json",
+  "compilerOptions": {
+    "lib": ["DOM"]
+  }
+}
