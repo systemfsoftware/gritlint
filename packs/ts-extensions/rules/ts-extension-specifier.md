@@ -8,7 +8,7 @@ locate: pattern ts_specifier() { r"['\"`](?:\.{1,2}/|/|#|@[^/'\"`]+/[^/'\"`]+/|[
 
 A module specifier in import position must not end in `.ts`, `.tsx`, `.mts` or
 `.cts`. That covers a static `import`, an `export ... from`, a dynamic
-`import()`, an `import x = require()`, and an `import()` type, and it covers
+`import()`, an `import x = require()`, and a `typeof import()` type query, and it covers
 type-only forms too. It applies to every subpath specifier: a relative or
 absolute path, a `#` subpath import, and a package subpath such as
 `pkg/dist/x.ts`. A bare package name that happens to end in `.ts` has no subpath
