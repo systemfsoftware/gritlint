@@ -141,7 +141,7 @@ fn a_target_file_that_fails_to_parse_refuses_at_its_position_with_a_reason_code(
 }
 
 #[test]
-fn the_refusal_names_the_first_unparseable_file_in_plan_order() {
+fn the_refusal_names_every_unparseable_file_in_path_order() {
     let temp = tempfile::tempdir().expect("temp dir");
     for directory in ["a", "b"] {
         write(
@@ -159,9 +159,33 @@ fn the_refusal_names_the_first_unparseable_file_in_plan_order() {
     let error = scan(temp.path(), &[rule("join", SIBLING_JOIN)], &[])
         .expect_err("a malformed target file is an instrument error");
 
+    let text = error.to_string();
+    let first = text.find("a/tsconfig.json").expect("the first file is named");
+    let second = text.find("b/tsconfig.json").expect("the second file is named");
     assert!(
-        error.to_string().contains("a/tsconfig.json"),
-        "the first directory's file must be named, whatever the thread schedule: {error}"
+        first < second,
+        "every refused file is named once, in path order, whatever the thread schedule: {text}"
+    );
+    assert_eq!(text.lines().count(), 2, "one line per refused file: {text}");
+    assert_eq!(
+        error.target().map(|target| target.file()),
+        Some("a/tsconfig.json"),
+        "an editor that drops one refused file at a time starts with the first"
+    );
+}
+
+#[test]
+fn one_refused_file_keeps_its_own_error_and_is_not_wrapped() {
+    let temp = tempfile::tempdir().expect("temp dir");
+    write(temp.path(), "a/tsconfig.json", "{\"compilerOptions\": {");
+    write(temp.path(), "b/tsconfig.json", "{\"compilerOptions\": {}}");
+
+    let error = scan(temp.path(), &[rule("json", REACT_PAIR)], &[])
+        .expect_err("a malformed target file is an instrument error");
+
+    assert!(
+        matches!(&error, GritlintError::TargetParse { file, .. } if file == "a/tsconfig.json"),
+        "{error:?}"
     );
 }
 

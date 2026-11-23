@@ -101,6 +101,8 @@ pub enum GritlintError {
         "{file}: {TARGET_UNREADABLE}: {message} Next action: make the file readable UTF-8 text, or add it to `ignore` in the gritlint config; `gritlint check` refuses the run until then."
     )]
     TargetUnreadable { file: String, message: String },
+    #[error("{}", joined_refusals(.0))]
+    TargetsRefused(Vec<GritlintError>),
     #[error("target file `{path}` was planned for a rule but never read")]
     SourceUnread { path: String },
     #[error("ignore glob `{glob}` is invalid: {message}")]
@@ -117,6 +119,14 @@ pub enum GritlintError {
     },
     #[error("{0}")]
     ExportRefused(ExportRefusal),
+}
+
+fn joined_refusals(errors: &[GritlintError]) -> String {
+    errors
+        .iter()
+        .map(ToString::to_string)
+        .collect::<Vec<_>>()
+        .join("\n")
 }
 
 const TARGET_DOES_NOT_PARSE: &str = "target-does-not-parse";
@@ -174,6 +184,9 @@ impl<'a> TargetRefusal<'a> {
 impl GritlintError {
     #[must_use]
     pub fn target(&self) -> Option<TargetRefusal<'_>> {
+        if let Self::TargetsRefused(errors) = self {
+            return errors.first().and_then(Self::target);
+        }
         let refusal = |file, reason| Some(TargetRefusal { file, reason });
         if let Self::TargetParse {
             file, line, column, ..
