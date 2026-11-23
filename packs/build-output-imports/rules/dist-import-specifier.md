@@ -1,14 +1,14 @@
 ---
 reasonCode: import-specifier-build-output
 nextAction: Import the package by its name and a subpath its `exports` map declares, instead of a path that contains a `dist` segment.
-locate: pattern build_output_specifier() { r"['\"`](?:(?:\.\./|\./)+(?:[^./'\"`]|\.[^./'\"`])[^/'\"`]*/(?:[^/'\"`]+/)*dist|/(?:[^/'\"`]+/)*dist|@[^/'\"`]+/[^/'\"`]+/(?:[^/'\"`]+/)*dist|(?:[^@.#/'\"`]|\.[^./'\"`])[^/'\"`]*/(?:[^/'\"`]+/)*dist)(?:/[^'\"`]*)?['\"`]" } or { import_statement(source=$source) where { $source <: build_output_specifier() }, export_statement(source=$source) where { $source <: build_output_specifier() }, call_expression(function=$callee, arguments=$arguments) where { $callee <: r"import", $arguments <: [$first, $...] where { $first <: build_output_specifier() } }, import_require_clause(source=$source) where { $source <: build_output_specifier() } }
+locate: pattern build_output_specifier() { r"['\"`](?:(?:\.\./|\./)+(?:[^./'\"`]|\.[^./'\"`])[^/'\"`]*/(?:[^/'\"`]+/)*dist|/(?:[^/'\"`]+/)*dist|@[^/'\"`]+/[^/'\"`]+/(?:[^/'\"`]+/)*dist|(?:[^@.#/'\"`]|\.[^./'\"`])[^/'\"`]*/(?:[^/'\"`]+/)*dist)(?:/[^'\"`]*)?['\"`]" } or { import_statement(source=$source) where { $source <: build_output_specifier() }, export_statement(source=$source) where { $source <: build_output_specifier() }, call_expression(function=$callee, arguments=$arguments) where { $callee <: r"import", $arguments <: [$first, $...] where { $first <: build_output_specifier() } }, import_require_clause(source=$source) where { $source <: build_output_specifier() }, import_type() as $type where { $type <: contains build_output_specifier() as $source where { $source <: not within type_arguments() as $arguments where { $type <: contains $arguments } } } }
 ---
 
 # An import specifier does not reach into a package's build output
 
 A module specifier in import position must not resolve by path into another
 package's `dist/` directory. That covers a static `import`, an `export ... from`,
-a dynamic `import()` and an `import x = require()`, type-only forms included.
+a dynamic `import()`, an `import x = require()` and an `import('x').T` type, type-only forms included.
 Three shapes fail:
 
 - a relative specifier that reaches a `dist` segment through one or more named
@@ -41,7 +41,8 @@ or {
     $callee <: r"import",
     $arguments <: [$first, $...] where { $first <: build_output_specifier() }
   },
-  import_require_clause(source=$source) where { $source <: build_output_specifier() }
+  import_require_clause(source=$source) where { $source <: build_output_specifier() },
+  import_type() as $type where { $type <: contains build_output_specifier() as $source where { $source <: not within type_arguments() as $arguments where { $type <: contains $arguments } } }
 }
 
 pattern build_output_specifier() {

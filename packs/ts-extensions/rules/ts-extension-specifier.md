@@ -1,14 +1,14 @@
 ---
 reasonCode: import-specifier-ts-extension
 nextAction: Write the specifier without an extension, or with the `.js` extension the emitted file carries, instead of `.ts`, `.tsx`, `.mts` or `.cts`.
-locate: pattern ts_specifier() { r"['\"`](?:\.{1,2}/|/|#|@[^/'\"`]+/[^/'\"`]+/|[^@#/'\"`][^/'\"`]*/)[^'\"`]*\.(?:ts|tsx|mts|cts)(?:[?#][^'\"`]*)?['\"`]" } or { import_statement(source=$source) where { $source <: ts_specifier() }, export_statement(source=$source) where { $source <: ts_specifier() }, call_expression(function=$callee, arguments=$arguments) where { $callee <: r"import", $arguments <: [$first, $...] where { $first <: ts_specifier() } }, import_require_clause(source=$source) where { $source <: ts_specifier() } }
+locate: pattern ts_specifier() { r"['\"`](?:\.{1,2}/|/|#|@[^/'\"`]+/[^/'\"`]+/|[^@#/'\"`][^/'\"`]*/)[^'\"`]*\.(?:ts|tsx|mts|cts)(?:[?#][^'\"`]*)?['\"`]" } or { import_statement(source=$source) where { $source <: ts_specifier() }, export_statement(source=$source) where { $source <: ts_specifier() }, call_expression(function=$callee, arguments=$arguments) where { $callee <: r"import", $arguments <: [$first, $...] where { $first <: ts_specifier() } }, import_require_clause(source=$source) where { $source <: ts_specifier() }, import_type() as $type where { $type <: contains ts_specifier() as $source where { $source <: not within type_arguments() as $arguments where { $type <: contains $arguments } } } }
 ---
 
 # An import specifier names no TypeScript file
 
 A module specifier in import position must not end in `.ts`, `.tsx`, `.mts` or
 `.cts`. That covers a static `import`, an `export ... from`, a dynamic
-`import()`, an `import x = require()`, and a `typeof import()` type query, and it covers
+`import()`, an `import x = require()`, and an `import('x').T` type, a `typeof import()` type query, and it covers
 type-only forms too. It applies to every subpath specifier: a relative or
 absolute path, a `#` subpath import, and a package subpath such as
 `pkg/dist/x.ts`. A bare package name that happens to end in `.ts` has no subpath
@@ -41,7 +41,8 @@ or {
     $callee <: r"import",
     $arguments <: [$first, $...] where { $first <: ts_specifier() }
   },
-  import_require_clause(source=$source) where { $source <: ts_specifier() }
+  import_require_clause(source=$source) where { $source <: ts_specifier() },
+  import_type() as $type where { $type <: contains ts_specifier() as $source where { $source <: not within type_arguments() as $arguments where { $type <: contains $arguments } } }
 }
 
 pattern ts_specifier() {

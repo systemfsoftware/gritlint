@@ -22,7 +22,7 @@ struct Unlocated<'a> {
 struct TaskRun<'a> {
     findings: Vec<Finding>,
     unlocated: Option<Unlocated<'a>>,
-    diagnostic: Option<EngineDiagnostic>,
+    diagnostics: Vec<EngineDiagnostic>,
 }
 
 pub struct Matched<'a> {
@@ -195,20 +195,17 @@ pub fn match_rules<'a>(
         .collect::<Vec<_>>()
         .into_iter()
         .collect::<Result<Vec<_>, _>>()?;
-    let (findings, unlocated, diagnostic) = runs.into_iter().fold(
-        (Vec::new(), Vec::new(), None),
-        |(mut findings, mut unlocated, diagnostic), run| {
+    let (findings, unlocated, diagnostics) = runs.into_iter().fold(
+        (Vec::new(), Vec::new(), Vec::new()),
+        |(mut findings, mut unlocated, mut diagnostics), run| {
             findings.extend(run.findings);
             unlocated.extend(run.unlocated);
-            let diagnostic = [diagnostic, run.diagnostic]
-                .into_iter()
-                .flatten()
-                .min_by_key(EngineDiagnostic::kind);
-            (findings, unlocated, diagnostic)
+            diagnostics.extend(run.diagnostics);
+            (findings, unlocated, diagnostics)
         },
     );
-    match diagnostic {
-        Some(diagnostic) => Err(refusal(diagnostic)),
+    match refusals(diagnostics) {
+        Some(error) => Err(error),
         None => Ok(Matched {
             findings,
             unlocated,
@@ -430,14 +427,14 @@ fn run_task<'a>(task: &Task<'a>, sources: &Sources) -> Result<TaskRun<'a>, Gritl
                 })
                 .collect(),
             unlocated: None,
-            diagnostic: None,
+            diagnostics: Vec::new(),
         });
     }
     let Some(engine) = compiled.compiled() else {
         return Ok(TaskRun {
             findings: Vec::new(),
             unlocated: None,
-            diagnostic: None,
+            diagnostics: Vec::new(),
         });
     };
     let outcome = engine.execute(execution(task, sources)?.into_files());
@@ -451,12 +448,12 @@ fn run_task<'a>(task: &Task<'a>, sources: &Sources) -> Result<TaskRun<'a>, Gritl
                     Ok::<_, GritlintError>(findings)
                 })?,
             unlocated: None,
-            diagnostic: first_diagnostic(&outcome, task.files()),
+            diagnostics: file_diagnostics(&outcome, task.files()),
         }),
         Task::Paths { .. } => Ok(TaskRun {
             findings: Vec::new(),
             unlocated: None,
-            diagnostic: None,
+            diagnostics: Vec::new(),
         }),
         Task::Directory { rule, directory } => {
             let mut matched = outcome
@@ -478,13 +475,13 @@ fn run_task<'a>(task: &Task<'a>, sources: &Sources) -> Result<TaskRun<'a>, Gritl
                         directory.directory().map_or("", RelPath::as_str)
                     ),
                 }),
-                diagnostic: first_diagnostic(&outcome, directory.files()),
+                diagnostics: file_diagnostics(&outcome, directory.files()),
             })
         }
     }
 }
 
-fn first_diagnostic(outcome: &EngineOutcome, files: &[SelectedFile]) -> Option<EngineDiagnostic> {
+fn file_diagnostics(outcome: &EngineOutcome, files: &[SelectedFile]) -> Vec<EngineDiagnostic> {
     outcome
         .diagnostics
         .iter()
@@ -493,8 +490,31 @@ fn first_diagnostic(outcome: &EngineOutcome, files: &[SelectedFile]) -> Option<E
                 .iter()
                 .any(|file| file.path().as_str() == diagnostic.path)
         })
-        .min_by_key(|diagnostic| diagnostic.kind())
         .cloned()
+        .collect()
+}
+
+/// One refusal per refused file, so a run reports every file it cannot scan instead of the
+/// first one. A file refused for several reasons keeps its most specific reason.
+fn refusals(diagnostics: Vec<EngineDiagnostic>) -> Option<GritlintError> {
+    let by_file = diagnostics.into_iter().fold(
+        BTreeMap::<String, EngineDiagnostic>::new(),
+        |mut by_file, diagnostic| {
+            match by_file.get(&diagnostic.path) {
+                Some(kept) if kept.kind() <= diagnostic.kind() => {}
+                _ => {
+                    by_file.insert(diagnostic.path.clone(), diagnostic);
+                }
+            }
+            by_file
+        },
+    );
+    let mut errors: Vec<GritlintError> = by_file.into_values().map(refusal).collect();
+    match errors.len() {
+        0 => None,
+        1 => errors.pop(),
+        _ => Some(GritlintError::TargetsRefused(errors)),
+    }
 }
 
 fn refusal(diagnostic: EngineDiagnostic) -> GritlintError {
