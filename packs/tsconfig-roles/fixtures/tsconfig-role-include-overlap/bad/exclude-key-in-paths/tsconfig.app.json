@@ -1,0 +1,4 @@
+{
+  "compilerOptions": { "paths": { "exclude": ["./src/x.ts"] } },
+  "include": ["src"]
+}

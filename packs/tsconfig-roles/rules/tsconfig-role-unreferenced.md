@@ -7,7 +7,7 @@ nextAction: Add a `references` entry for this role file to the `tsconfig.json` b
 
 A `tsconfig.app.json`, `tsconfig.node.json`, `tsconfig.test.json` or
 `tsconfig.build.json` in a directory that has a `tsconfig.json` must be one of
-that file's `references`, written `./tsconfig.<role>.json`.
+that file's `references`, written `./tsconfig.<role>.json` (or `tsconfig.<role>.json`, or with a `.\\` prefix).
 
 `tsc -b` starts at the solution file and builds only what it references. A role
 file it does not reference is never typechecked by `tsc -b`, so the files it
@@ -26,16 +26,19 @@ language json
 multifile {
   bubble($dir, $references) file($name, $body) where {
     $name <: r"(.*/|)tsconfig\.json"($dir),
-    $program <: or {
-      contains `"references": $references`,
-      not contains `"references": $_` where { $references = `[]` }
+    $program <: contains `{ $... }` as $root where {
+      $root <: not within or { pair(), array() },
+      $root <: or {
+        `{ $..., "references": $references, $... }`,
+        not `{ $..., "references": $_, $... }` where { $references = `[]` }
+      }
     }
   },
   bubble($dir, $references) file($name, $body) where {
     $name <: r"(.*/|)tsconfig\.(app|node|test|build)\.json"($role_dir, $role),
     $role_dir <: $dir,
     $references <: not contains `"path": $path` where {
-      $path <: r"\"(?:\./)?tsconfig\.(app|node|test|build)\.json\""($referenced),
+      $path <: r"\"(?:\./|\.\\\\)?tsconfig\.(app|node|test|build)\.json\""($referenced),
       $referenced <: $role
     }
   }

@@ -11,8 +11,8 @@ same directory whose `compilerOptions.lib` lists `DOM`, resolves both: the
 server globals and the browser globals load together. `lib` is inherited when
 the child does not set it.
 
-Only an `extends` written `./<file>` (a file in the same directory) is followed,
-one hop. gritlint evaluates a multifile rule one directory at a time (the
+Only an `extends` entry written `./<file>` (or `.\\<file>`), a string or an item
+of the array form, naming a file in the same directory is followed, one hop. gritlint evaluates a multifile rule one directory at a time (the
 engine groups the scanned files by parent directory), so an `extends` that
 climbs (`../../tsconfig.base.json`) names a file in another directory that the
 rule never sees. A preset reached by package name (`@scope/tsconfig/app.json`)
@@ -25,22 +25,22 @@ judged against the parent's value.
 ```grit
 language json
 multifile {
-  bubble($dir, $base) file($name, $body) where {
+  bubble($dir, $ext) file($name, $body) where {
     $name <: r"(.*/|)tsconfig(?:\.[^/]+)?\.json"($dir),
     $program <: contains `{ $... }` as $root where {
       $root <: not within or { pair(), array() },
       $root <: `{ $..., "extends": $ext, $... }`
     },
-    $ext <: r"\"\./(.+?)(?:\.json)?\""($base),
+    $ext <: contains r"\"(?:\./|\.\\\\).+\"",
     $program <: contains `"compilerOptions": { $... }` as $options where {
       $options <: `"compilerOptions": { $..., "types": $types, $... }` where { $types <: contains r"\"(?:node|@types/node|@cloudflare/workers-types(?:/[^\"]*)?)\"" },
       $options <: not `"compilerOptions": { $..., "lib": $_, $... }`
     }
   },
-  bubble($dir, $base) file($name, $body) where {
+  bubble($dir, $ext) file($name, $body) where {
     $name <: r"(.*/|)([^/]+)\.json"($parent_dir, $parent_base),
     $parent_dir <: $dir,
-    $parent_base <: $base,
+    $ext <: contains r"\"(?:\./|\.\\\\)(.+?)(?:\.json)?\""($extended) where { $extended <: $parent_base },
     $program <: contains `"compilerOptions": { $..., "lib": $value, $... }` where {
       $value <: contains r"\"(?i:dom(?:\.[a-z]+)?|lib\.dom(?:\.[a-z]+)?\.d\.ts)\""
     }

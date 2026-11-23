@@ -7,7 +7,7 @@ nextAction: Give each role config its own `include` entries, or exclude the othe
 
 `tsconfig.app.json`, `tsconfig.node.json` and `tsconfig.test.json` in one
 directory must not list the same `include` entry (the same string) when neither
-declares `exclude`.
+declares `exclude`. Both keys are read at the top level of the file.
 
 A file matched by two role configs is checked under two sets of `lib` and
 `types`, so it can pass one and break the other, and which result a tool shows
@@ -26,15 +26,20 @@ multifile {
   bubble($dir, $first, $entries) file($name, $body) where {
     $first = $name,
     $name <: r"(.*/|)tsconfig\.(?:app|node|test)\.json"($dir),
-    $program <: not contains `"exclude": $_`,
-    $program <: contains `"include": $entries`
+    $program <: contains `{ $... }` as $root where {
+      $root <: not within or { pair(), array() },
+      $root <: not `{ $..., "exclude": $_, $... }`,
+      $root <: `{ $..., "include": $entries, $... }`
+    }
   },
   bubble($dir, $first, $entries) file($name, $body) where {
     $name <: r"(.*/|)tsconfig\.(?:app|node|test)\.json"($other_dir),
     $other_dir <: $dir,
     $name <: not $first,
-    $program <: not contains `"exclude": $_`,
-    $program <: contains `"include": $own` where {
+    $program <: contains `{ $... }` as $root where {
+      $root <: not within or { pair(), array() },
+      $root <: not `{ $..., "exclude": $_, $... }`,
+      $root <: `{ $..., "include": $own, $... }`,
       $own <: contains r"\".*\"" as $entry where { $entries <: contains $entry }
     }
   }

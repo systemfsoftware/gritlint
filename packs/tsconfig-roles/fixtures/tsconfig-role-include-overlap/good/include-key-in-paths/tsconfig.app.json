@@ -1,0 +1,4 @@
+{
+  "compilerOptions": { "paths": { "include": ["./src/shared.ts"] } },
+  "include": ["src/app.ts"]
+}
