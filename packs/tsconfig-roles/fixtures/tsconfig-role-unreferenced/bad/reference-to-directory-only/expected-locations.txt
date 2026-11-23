@@ -1,1 +1,0 @@
-tsconfig-roles/tsconfig-role-unreferenced packages/a/tsconfig.app.json

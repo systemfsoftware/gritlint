@@ -1,0 +1,1 @@
+tsconfig-roles/tsconfig-test-unreferenced tsconfig.test.json:2:3-2:40
