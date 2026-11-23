@@ -659,7 +659,9 @@ impl ParsedRule {
     pub fn library_against(&self, all: &[&Self]) -> Vec<crate::engine::NamedPattern> {
         let scope = self.id.scope();
         all.iter()
-            .filter(|other| other.id != self.id && other.id.scope() == scope)
+            .filter(|other| {
+                other.id != self.id && other.id.scope() == scope && other.paths().is_none()
+            })
             .map(|other| crate::engine::NamedPattern {
                 name: other.name.as_str().to_owned(),
                 body: other.body.clone(),

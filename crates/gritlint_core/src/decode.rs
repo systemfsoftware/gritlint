@@ -401,15 +401,19 @@ pub fn select_files(paths: Vec<PathBuf>, root: &Path) -> Result<SelectedFiles, G
     let files = paths
         .into_iter()
         .map(|path| -> Result<Option<SelectedFile>, GritlintError> {
-            match language_of(&path).or_else(Language::unparsed) {
-                None => Ok(None),
-                Some(language) => RelPath::from_root(root, &path)
-                    .map(|relative| Some(SelectedFile::new(language, relative)))
-                    .map_err(|reason| GritlintError::RelPath {
-                        path: path.display().to_string(),
-                        reason,
-                    }),
-            }
+            let relative =
+                RelPath::from_root(root, &path).map_err(|reason| GritlintError::RelPath {
+                    path: path.display().to_string(),
+                    reason,
+                })?;
+            let parsed = if is_hidden(&relative) {
+                None
+            } else {
+                language_of(&path)
+            };
+            Ok(parsed
+                .or_else(Language::unparsed)
+                .map(|language| SelectedFile::new(language, relative)))
         })
         .collect::<Result<Vec<_>, _>>()?
         .into_iter()
@@ -724,6 +728,15 @@ fn direct_children(tree: &RawTree, directory: &Path) -> Vec<PathBuf> {
                 .filter(|path| path.parent() == Some(directory)),
         )
         .collect()
+}
+
+/// A path with a dot-named segment below the scan root. The walk reaches it so a path rule can
+/// judge it, but no rule language reads it: hidden files were never scanned before path rules.
+fn is_hidden(relative: &RelPath) -> bool {
+    relative
+        .as_str()
+        .split('/')
+        .any(|segment| segment.starts_with('.'))
 }
 
 fn language_of(path: &Path) -> Option<Language> {

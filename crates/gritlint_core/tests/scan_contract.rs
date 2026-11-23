@@ -257,20 +257,24 @@ fn a_violation_carries_the_rule_path_line_and_description() {
 }
 
 #[test]
-fn a_tree_of_node_modules_and_gitignored_files_names_the_root() {
+fn a_tree_of_node_modules_and_gitignored_files_selects_neither() {
     let temp = tempfile::tempdir().expect("temp dir");
     write(temp.path(), ".gitignore", "ignored.json\n");
     write(temp.path(), "node_modules/pkg.json", "{\"name\": \"dep\"}");
     write(temp.path(), "ignored.json", "{\"name\": \"ignored\"}");
 
-    let error = scan(temp.path(), &[rule("json", REACT_PAIR)], &[])
-        .expect_err("selecting no files is an instrument error");
+    let outcome = scan(
+        temp.path(),
+        &[path_rule("everything", "allow \\.gitignore")],
+        &[],
+    )
+    .expect("scan");
 
-    assert!(
-        matches!(error, GritlintError::NoFilesSelected { .. }),
-        "{error}"
+    assert_eq!(
+        flagged(&outcome),
+        BTreeSet::new(),
+        "only .gitignore is selected: node_modules and the gitignored file are skipped"
     );
-    assert!(error.to_string().contains(temp.path().to_str().unwrap()));
 }
 
 #[test]
@@ -973,4 +977,29 @@ fn a_path_rule_with_a_locate_key_or_a_stray_line_refuses_to_load() {
     );
     let error = decode::parse_rule(None, &stray).expect_err("an unknown line is refused");
     assert!(error.to_string().contains("forbid docs/.*"), "{error}");
+}
+
+#[test]
+fn a_path_rule_judges_hidden_files_and_no_other_rule_reads_them() {
+    let temp = tempfile::tempdir().expect("temp dir");
+    write(temp.path(), "docs/.DS_Store", "binary\n");
+    write(temp.path(), "docs/.hidden/a.md", "x\n");
+    write(temp.path(), "docs/plans/2026-good-plan.md", "# a plan\n");
+    write(
+        temp.path(),
+        ".config/package.json",
+        "{\"react\": {{ not json",
+    );
+
+    let outcome = scan(
+        temp.path(),
+        &[path_rule("layout", PLANS), rule("react", REACT_PAIR)],
+        &[],
+    )
+    .expect("a hidden file is never handed to a rule's language");
+
+    assert_eq!(
+        flagged(&outcome),
+        BTreeSet::from(["docs/.DS_Store".to_owned(), "docs/.hidden/a.md".to_owned()])
+    );
 }
