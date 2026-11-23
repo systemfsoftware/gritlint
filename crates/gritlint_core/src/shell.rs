@@ -28,6 +28,7 @@ pub fn read_rule_sources(paths: &[PathBuf]) -> Result<Vec<RuleSource>, GritlintE
 pub fn walk(root: &Path, ignore: &IgnoreGlobs) -> Vec<PathBuf> {
     let walker = WalkBuilder::new(root)
         .standard_filters(true)
+        .hidden(false)
         .require_git(false)
         .git_ignore(true)
         .filter_entry(|entry| {
