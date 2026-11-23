@@ -1,6 +1,6 @@
 # tsconfig-roles
 
-Eight rules that keep a repository's tsconfig files to a closed set of roles. The
+Ten rules that keep a repository's tsconfig files to a closed set of roles. The
 last four are multifile rules, written like `typecheck-build-mode`: they join the
 files of one directory.
 
@@ -17,9 +17,11 @@ files of one directory.
   `compilerOptions` lists `DOM` (or `DOM.Iterable`, `DOM.AsyncIterable`,
   `lib.dom.d.ts`) in `lib` and `node`, `@types/node` or
   `@cloudflare/workers-types` in `types`.
-- `tsconfig-role-unreferenced` fails a role file (`app`, `node`, `test`, `build`)
+- `tsconfig-app-unreferenced`, `tsconfig-node-unreferenced` and `tsconfig-test-unreferenced` each fail a role file
   that the `tsconfig.json` in the same directory does not reference as
-  `./tsconfig.<role>.json`.
+  `./tsconfig.<role>.json`. A finding points at the role file (at its first
+  `compilerOptions`, `extends` or `include`). `tsconfig.build.json` is not judged: an
+  emit-only, non-composite project cannot be referenced by `tsc -b` (TS6306).
 - `tsconfig-role-include-overlap` fails two of `app`, `node` and `test` in one
   directory that list the same `include` string when neither declares `exclude`.
 - `tsconfig-dom-extends-runtime-types` fails a config with `DOM` in `lib` and no
@@ -50,7 +52,7 @@ cover.
   does not test for non-existence. `tsc -b` reports a reference to a missing
   project itself (TS6053). A directory with role files and no `tsconfig.json` is
   likewise not judged.
-- **Directory references.** `tsconfig-role-unreferenced` reads references written
+- **Directory references.** The three `unreferenced` rules read references written
   `./tsconfig.<role>.json` (or without `./`). A reference to a directory
   (`./sub`) is not a role reference.
 - **Include overlap is compared as strings.** `tsconfig-role-include-overlap`
