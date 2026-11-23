@@ -1,6 +1,7 @@
 ---
 reasonCode: tsconfig-dom-with-runtime-types
 nextAction: Split the config by runtime: keep `DOM` in the browser role (tsconfig.app.json) and `node` or `@cloudflare/workers-types` in the runtime role (tsconfig.node.json).
+locate: `"compilerOptions": { $... }` as $options where { $options <: or { `"compilerOptions": { $..., "lib": $lib, $..., "types": $types, $... }`, `"compilerOptions": { $..., "types": $types, $..., "lib": $lib, $... }` }, $lib <: contains r"\"(?i:dom(?:\.[a-z]+)?|lib\.dom(?:\.[a-z]+)?\.d\.ts)\"", $types <: contains r"\"(?:node|@types/node|@cloudflare/workers-types(?:/[^\"]*)?)\"" }
 ---
 
 # One config does not combine browser and server runtime types
