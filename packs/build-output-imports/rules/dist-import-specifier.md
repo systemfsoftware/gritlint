@@ -1,7 +1,7 @@
 ---
 reasonCode: import-specifier-build-output
 nextAction: Import the package by its name and a subpath its `exports` map declares, instead of a path that contains a `dist` segment.
-locate: pattern build_output_specifier() { r"['\"`](?:(?:\.\./|\./)+[^./'\"`][^/'\"`]*/(?:[^/'\"`]+/)*dist|/(?:[^/'\"`]+/)*dist|@[^/'\"`]+/[^/'\"`]+/(?:[^/'\"`]+/)*dist|[^@.#/'\"`][^/'\"`]*/(?:[^/'\"`]+/)*dist)(?:/[^'\"`]*)?['\"`]" } or { import_statement(source=$source) where { $source <: build_output_specifier() }, export_statement(source=$source) where { $source <: build_output_specifier() }, call_expression(function=$callee, arguments=$arguments) where { $callee <: r"import", $arguments <: [$first, $...] where { $first <: build_output_specifier() } }, import_require_clause(source=$source) where { $source <: build_output_specifier() } }
+locate: pattern build_output_specifier() { r"['\"`](?:(?:\.\./|\./)+(?:[^./'\"`]|\.[^./'\"`])[^/'\"`]*/(?:[^/'\"`]+/)*dist|/(?:[^/'\"`]+/)*dist|@[^/'\"`]+/[^/'\"`]+/(?:[^/'\"`]+/)*dist|(?:[^@.#/'\"`]|\.[^./'\"`])[^/'\"`]*/(?:[^/'\"`]+/)*dist)(?:/[^'\"`]*)?['\"`]" } or { import_statement(source=$source) where { $source <: build_output_specifier() }, export_statement(source=$source) where { $source <: build_output_specifier() }, call_expression(function=$callee, arguments=$arguments) where { $callee <: r"import", $arguments <: [$first, $...] where { $first <: build_output_specifier() } }, import_require_clause(source=$source) where { $source <: build_output_specifier() } }
 ---
 
 # An import specifier does not reach into a package's build output
@@ -45,6 +45,6 @@ or {
 }
 
 pattern build_output_specifier() {
-  r"['\"`](?:(?:\.\./|\./)+[^./'\"`][^/'\"`]*/(?:[^/'\"`]+/)*dist|/(?:[^/'\"`]+/)*dist|@[^/'\"`]+/[^/'\"`]+/(?:[^/'\"`]+/)*dist|[^@.#/'\"`][^/'\"`]*/(?:[^/'\"`]+/)*dist)(?:/[^'\"`]*)?['\"`]"
+  r"['\"`](?:(?:\.\./|\./)+(?:[^./'\"`]|\.[^./'\"`])[^/'\"`]*/(?:[^/'\"`]+/)*dist|/(?:[^/'\"`]+/)*dist|@[^/'\"`]+/[^/'\"`]+/(?:[^/'\"`]+/)*dist|(?:[^@.#/'\"`]|\.[^./'\"`])[^/'\"`]*/(?:[^/'\"`]+/)*dist)(?:/[^'\"`]*)?['\"`]"
 }
 ```
