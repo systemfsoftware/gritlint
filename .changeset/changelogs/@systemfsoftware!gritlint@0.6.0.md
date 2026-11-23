@@ -1,6 +1,4 @@
----
-"@systemfsoftware/gritlint": minor
----
+# @systemfsoftware/gritlint@0.6.0
 
 `tsconfig-role-unreferenced` is split into `tsconfig-app-unreferenced`, `tsconfig-node-unreferenced` and `tsconfig-test-unreferenced`, and `tsconfig.build.json` is no longer judged.
 
