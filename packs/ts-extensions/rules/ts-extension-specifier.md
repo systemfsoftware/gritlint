@@ -1,7 +1,7 @@
 ---
 reasonCode: import-specifier-ts-extension
 nextAction: Write the specifier without an extension, or with the `.js` extension the emitted file carries, instead of `.ts`, `.tsx`, `.mts` or `.cts`.
-locate: pattern ts_specifier() { r"['\"`](?:\.{1,2}/|/|#|@[^/'\"`]+/[^/'\"`]+/|[^@.#/'\"`][^/'\"`]*/)[^'\"`]*\.(?:ts|tsx|mts|cts)(?:\?[^'\"`]*)?['\"`]" } or { import_statement(source=$source) where { $source <: ts_specifier() }, export_statement(source=$source) where { $source <: ts_specifier() }, call_expression(function=$callee, arguments=$arguments) where { $callee <: r"import", $arguments <: contains ts_specifier() }, import_require_clause(source=$source) where { $source <: ts_specifier() } }
+locate: pattern ts_specifier() { r"['\"`](?:\.{1,2}/|/|#|@[^/'\"`]+/[^/'\"`]+/|[^@#/'\"`][^/'\"`]*/)[^'\"`]*\.(?:ts|tsx|mts|cts)(?:[?#][^'\"`]*)?['\"`]" } or { import_statement(source=$source) where { $source <: ts_specifier() }, export_statement(source=$source) where { $source <: ts_specifier() }, call_expression(function=$callee, arguments=$arguments) where { $callee <: r"import", $arguments <: [$first, $...] where { $first <: ts_specifier() } }, import_require_clause(source=$source) where { $source <: ts_specifier() } }
 ---
 
 # An import specifier names no TypeScript file
@@ -22,7 +22,7 @@ runtime that resolves specifiers itself fails on it. A `.js` specifier names the
 file the build emits and a specifier without an extension names the module, so
 both resolve the same before and after the build.
 
-A bundler query suffix (`./y.ts?raw`) does not hide the extension.
+A bundler query or fragment suffix (`./y.ts?raw`) does not hide the extension.
 
 Strings that are not module specifiers are not judged: a path in a bundler or
 test-runner config, a `new URL()` argument, a `vi.mock()` or `require()` call
@@ -39,12 +39,12 @@ or {
   export_statement(source=$source) where { $source <: ts_specifier() },
   call_expression(function=$callee, arguments=$arguments) where {
     $callee <: r"import",
-    $arguments <: contains ts_specifier()
+    $arguments <: [$first, $...] where { $first <: ts_specifier() }
   },
   import_require_clause(source=$source) where { $source <: ts_specifier() }
 }
 
 pattern ts_specifier() {
-  r"['\"`](?:\.{1,2}/|/|#|@[^/'\"`]+/[^/'\"`]+/|[^@.#/'\"`][^/'\"`]*/)[^'\"`]*\.(?:ts|tsx|mts|cts)(?:\?[^'\"`]*)?['\"`]"
+  r"['\"`](?:\.{1,2}/|/|#|@[^/'\"`]+/[^/'\"`]+/|[^@#/'\"`][^/'\"`]*/)[^'\"`]*\.(?:ts|tsx|mts|cts)(?:[?#][^'\"`]*)?['\"`]"
 }
 ```

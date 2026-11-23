@@ -10,6 +10,7 @@
     },
     "typecheck-build-mode": {},
     "ts-extensions": {},
+    "build-output-imports": {},
     "npm-provenance": {
       "repositoryUrl": "`\"git+https://github.com/systemfsoftware/gritlint.git\"`"
     }
