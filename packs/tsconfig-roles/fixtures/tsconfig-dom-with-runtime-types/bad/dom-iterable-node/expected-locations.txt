@@ -1,1 +1,1 @@
-tsconfig-roles/tsconfig-dom-with-runtime-types packages/app/tsconfig.app.json
+tsconfig-roles/tsconfig-dom-with-runtime-types packages/app/tsconfig.app.json:2:3-5:4
