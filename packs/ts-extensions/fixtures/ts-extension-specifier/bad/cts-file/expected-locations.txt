@@ -1,0 +1,1 @@
+ts-extensions/ts-extension-specifier a.cts:1:1-1:28

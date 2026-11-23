@@ -36,6 +36,7 @@ These packs ship with the CLI:
 | `cell-architecture` | A `*.service.ts` module holds no driver and exports no Layer value. |
 | `source-resolution` | A workspace package's name resolves to its `src/` for workspace tools and to `dist/` for registry consumers, across the export map, tsconfig, Vite and api-extractor. |
 | `typecheck-build-mode` | A reference-only tsconfig root's `typecheck` script runs `tsc -b`, so it reaches the referenced projects. |
+| `ts-extensions` | No tsconfig option allows a `.ts` extension in an import, and no import, export-from or dynamic import specifier ends in `.ts`, `.tsx`, `.mts` or `.cts`. |
 | `npm-provenance` | Public npm packages publish with trusted publishing (OIDC) and provenance. |
 
 Each pack's README lists its rules and its parameters.

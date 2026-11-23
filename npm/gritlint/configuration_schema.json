@@ -62,6 +62,12 @@
           ],
           "additionalProperties": false
         },
+        "ts-extensions": {
+          "type": "object",
+          "properties": {},
+          "required": [],
+          "additionalProperties": false
+        },
         "typecheck-build-mode": {
           "type": "object",
           "properties": {},
