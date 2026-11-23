@@ -40,6 +40,26 @@ These packs ship with the CLI:
 
 Each pack's README lists its rules and its parameters.
 
+## Path rules
+
+A rule whose fenced block is `path` instead of `grit` judges file paths and never reads a file. gritlint walks every non-ignored file whatever its extension, so a `.txt` file or one with no extension is judged too. A path that is in `scope` and matches no `allow` pattern is one finding at that path.
+
+````markdown
+---
+reasonCode: docs-misnamed
+nextAction: Name the plan docs/plans/YYYY-MM-DD-HHMM-<name>-plan.md.
+---
+
+# A plan is named by its date
+
+```path
+scope docs/plans/.*
+allow docs/plans/[0-9]{4}-[0-9]{2}-[0-9]{2}-[0-9]{4}-[a-z0-9]+(?:-[a-z0-9]+)*-plan\.md
+```
+````
+
+The rest of each line is the regex. A pattern matches the whole relative path, written with `/` separators, so no `^` or `$` is needed. `scope` may appear once and is optional; `allow` may repeat. A path rule takes no `locate` key and does not export to Biome. Files the walk skips (gitignored, hidden, `node_modules`, the config's `ignore` globs) are not judged.
+
 ## Commands
 
 | Command | What it does |

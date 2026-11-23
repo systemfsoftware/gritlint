@@ -42,6 +42,16 @@ pub fn plan(rules: &NonEmpty<CompiledRule>, files: &SelectedFiles) -> ScanPlan {
             let batch: Vec<SelectedFile> = files.batch(key).cloned().collect();
             let evaluation = match compiled.kind() {
                 RuleKind::SingleFile => Evaluation::SingleFile { batch },
+                RuleKind::Paths => Evaluation::Paths {
+                    files: files
+                        .all()
+                        .filter(|file| {
+                            rule.paths()
+                                .is_some_and(|policy| policy.in_scope(file.path().as_str()))
+                        })
+                        .cloned()
+                        .collect(),
+                },
                 RuleKind::MultiFile => {
                     let mut input = batch;
                     input.extend(participants(rule, files, key));
@@ -114,6 +124,12 @@ fn narrow(
                         .filter(|file| keep_file(file.path()))
                         .collect(),
                 },
+                Evaluation::Paths { files } => Evaluation::Paths {
+                    files: files
+                        .into_iter()
+                        .filter(|file| keep_file(file.path()))
+                        .collect(),
+                },
                 Evaluation::MultiFile { directories } => Evaluation::MultiFile {
                     directories: directories
                         .into_iter()
@@ -136,7 +152,7 @@ pub fn batch_mates(plan: &ScanPlan, file: &RelPath) -> BTreeSet<RelPath> {
         .iter()
         .filter_map(|step| match &step.evaluation {
             Evaluation::MultiFile { directories } => Some(directories),
-            Evaluation::SingleFile { .. } => None,
+            Evaluation::SingleFile { .. } | Evaluation::Paths { .. } => None,
         })
         .flatten()
         .filter(|batch| batch.files().iter().any(|member| member.path() == file))
@@ -267,6 +283,7 @@ pub fn executions(plan: &ScanPlan, sources: &Sources) -> Result<Vec<Execution>, 
     plan.steps
         .iter()
         .flat_map(tasks_of)
+        .filter(|task| !matches!(task, Task::Paths { .. }))
         .map(|task| execution(&task, sources))
         .collect()
 }
@@ -339,24 +356,32 @@ enum Task<'a> {
         rule: &'a CompiledRule,
         directory: &'a DirectoryBatch,
     },
+    Paths {
+        rule: &'a CompiledRule,
+        files: &'a [SelectedFile],
+    },
 }
 
 impl Task<'_> {
     fn rule(&self) -> &CompiledRule {
         match self {
-            Task::Single { rule, .. } | Task::Directory { rule, .. } => rule,
+            Task::Single { rule, .. } | Task::Directory { rule, .. } | Task::Paths { rule, .. } => {
+                rule
+            }
         }
     }
 
     fn files(&self) -> &[SelectedFile] {
         match self {
             Task::Single { batch, .. } => batch,
+            Task::Paths { files, .. } => files,
             Task::Directory { directory, .. } => directory.files(),
         }
     }
 
     fn reads(&self, file: &SelectedFile) -> bool {
-        file.language().key() == self.rule().rule().language().key()
+        !matches!(self, Task::Paths { .. })
+            && file.language().key() == self.rule().rule().language().key()
     }
 }
 
@@ -364,6 +389,7 @@ fn tasks_of(step: &RuleStep) -> Vec<Task<'_>> {
     let rule = &step.rule;
     match &step.evaluation {
         Evaluation::SingleFile { batch } => vec![Task::Single { rule, batch }],
+        Evaluation::Paths { files } => vec![Task::Paths { rule, files }],
         Evaluation::MultiFile { directories } => directories
             .iter()
             .map(|directory| Task::Directory { rule, directory })
@@ -374,6 +400,7 @@ fn tasks_of(step: &RuleStep) -> Vec<Task<'_>> {
 fn count_of(step: &RuleStep) -> RuleCount {
     let evaluated = match &step.evaluation {
         Evaluation::SingleFile { batch } => batch.len(),
+        Evaluation::Paths { files } => files.len(),
         Evaluation::MultiFile { directories } => directories
             .iter()
             .map(|directory| directory.files().len())
@@ -384,9 +411,36 @@ fn count_of(step: &RuleStep) -> RuleCount {
 
 fn run_task<'a>(task: &Task<'a>, sources: &Sources) -> Result<TaskRun<'a>, GritlintError> {
     let compiled = task.rule();
-    let outcome = compiled
-        .compiled()
-        .execute(execution(task, sources)?.into_files());
+    if let Task::Paths { rule, files } = task {
+        let rule = rule.rule();
+        let flagged = rule.paths().into_iter().flat_map(|policy| {
+            files
+                .iter()
+                .filter(move |file| policy.flags(file.path().as_str()))
+        });
+        return Ok(TaskRun {
+            findings: flagged
+                .map(|file| {
+                    Finding::new(
+                        rule.id().clone(),
+                        Location::new(file.path().clone(), None),
+                        rule.message().to_owned(),
+                        rule.guidance().clone(),
+                    )
+                })
+                .collect(),
+            unlocated: None,
+            diagnostic: None,
+        });
+    }
+    let Some(engine) = compiled.compiled() else {
+        return Ok(TaskRun {
+            findings: Vec::new(),
+            unlocated: None,
+            diagnostic: None,
+        });
+    };
+    let outcome = engine.execute(execution(task, sources)?.into_files());
     match task {
         Task::Single { .. } => Ok(TaskRun {
             findings: outcome
@@ -398,6 +452,11 @@ fn run_task<'a>(task: &Task<'a>, sources: &Sources) -> Result<TaskRun<'a>, Gritl
                 })?,
             unlocated: None,
             diagnostic: first_diagnostic(&outcome, task.files()),
+        }),
+        Task::Paths { .. } => Ok(TaskRun {
+            findings: Vec::new(),
+            unlocated: None,
+            diagnostic: None,
         }),
         Task::Directory { rule, directory } => {
             let mut matched = outcome

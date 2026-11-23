@@ -11,6 +11,7 @@ use std::sync::Arc;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ExportReason {
     UnknownRule,
+    PathOnly,
     Multifile,
     Language,
     Construct,
@@ -23,6 +24,7 @@ impl ExportReason {
     pub const fn code(self) -> &'static str {
         match self {
             Self::UnknownRule => "export-unknown-rule",
+            Self::PathOnly => "export-path-only",
             Self::Multifile => "export-multifile",
             Self::Language => "export-language",
             Self::Construct => "export-construct",
@@ -211,6 +213,8 @@ pub enum RuleNamespace {
 pub enum RuleKind {
     SingleFile,
     MultiFile,
+    /// Judges every selected path by its name alone; never reads or parses a file.
+    Paths,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -454,6 +458,8 @@ impl fmt::Display for Location {
     }
 }
 
+const UNPARSED_KEY: &str = "unparsed";
+
 #[derive(Debug, Clone)]
 pub struct Language {
     engine: TargetLanguage,
@@ -469,6 +475,17 @@ impl Language {
     #[must_use]
     pub fn of_body(body: &str) -> Option<Self> {
         TargetLanguage::get_language(body).map(Self::of)
+    }
+
+    /// The language of a file no rule language parses (`.txt`, no extension, a binary).
+    /// No rule declares this key, so such a file is never read; it reaches a multifile
+    /// rule only as a path, with empty contents, when a `$name <: r"..."` target matches it.
+    #[must_use]
+    pub fn unparsed() -> Option<Self> {
+        TargetLanguage::from_extension("json").map(|engine| Self {
+            engine,
+            key: UNPARSED_KEY,
+        })
     }
 
     fn of(engine: TargetLanguage) -> Self {
@@ -539,6 +556,7 @@ pub struct ParsedRule {
     params: BTreeMap<ParamName, String>,
     guidance: Arc<Guidance>,
     locate: Option<String>,
+    paths: Option<PathPolicy>,
 }
 
 impl ParsedRule {
@@ -565,6 +583,7 @@ impl ParsedRule {
             params: BTreeMap::new(),
             guidance: Arc::new(guidance),
             locate,
+            paths: None,
         }
     }
 
@@ -613,6 +632,17 @@ impl ParsedRule {
         self.locate.as_deref()
     }
 
+    #[must_use]
+    pub fn paths(&self) -> Option<&PathPolicy> {
+        self.paths.as_ref()
+    }
+
+    #[must_use]
+    pub(crate) fn with_paths(mut self, policy: PathPolicy) -> Self {
+        self.paths = Some(policy);
+        self
+    }
+
     pub(crate) fn with_params(&mut self, params: BTreeMap<ParamName, String>) {
         self.params = params;
     }
@@ -638,15 +668,47 @@ impl ParsedRule {
     }
 }
 
+/// A path rule's judgement: a path inside `scope` that matches no `allow` pattern is a finding.
+/// Every pattern is anchored to the whole relative path, with `/` separators.
+#[derive(Debug, Clone)]
+pub struct PathPolicy {
+    scope: Option<Regex>,
+    allow: Vec<Regex>,
+}
+
+impl PathPolicy {
+    #[must_use]
+    pub fn new(scope: Option<Regex>, allow: Vec<Regex>) -> Self {
+        Self { scope, allow }
+    }
+
+    #[must_use]
+    pub fn in_scope(&self, path: &str) -> bool {
+        self.scope.as_ref().is_none_or(|scope| scope.is_match(path))
+    }
+
+    #[must_use]
+    pub fn flags(&self, path: &str) -> bool {
+        self.in_scope(path) && !self.allow.iter().any(|allow| allow.is_match(path))
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct CompiledRule {
     rule: ParsedRule,
-    compiled: Arc<crate::engine::Compiled>,
+    compiled: Option<Arc<crate::engine::Compiled>>,
     locator: Option<Arc<crate::engine::Compiled>>,
 }
 
 impl CompiledRule {
     pub(crate) fn compile(rule: &ParsedRule, all: &[&ParsedRule]) -> Result<Self, GritlintError> {
+        if rule.paths().is_some() {
+            return Ok(Self {
+                rule: rule.clone(),
+                compiled: None,
+                locator: None,
+            });
+        }
         let mut request = crate::engine::CompileRequest {
             body: rule.body().to_owned(),
             library: rule.library_against(all),
@@ -672,7 +734,7 @@ impl CompiledRule {
         };
         Ok(Self {
             rule: rule.clone(),
-            compiled,
+            compiled: Some(compiled),
             locator,
         })
     }
@@ -683,16 +745,16 @@ impl CompiledRule {
     }
 
     #[must_use]
-    pub fn compiled(&self) -> &crate::engine::Compiled {
-        &self.compiled
+    pub fn compiled(&self) -> Option<&crate::engine::Compiled> {
+        self.compiled.as_deref()
     }
 
     #[must_use]
     pub fn kind(&self) -> RuleKind {
-        if self.compiled.is_multifile() {
-            RuleKind::MultiFile
-        } else {
-            RuleKind::SingleFile
+        match &self.compiled {
+            None => RuleKind::Paths,
+            Some(compiled) if compiled.is_multifile() => RuleKind::MultiFile,
+            Some(_) => RuleKind::SingleFile,
         }
     }
 
@@ -785,6 +847,10 @@ impl SelectedFiles {
         self.by_language.values().map(NonEmpty::len).sum()
     }
 
+    pub fn all(&self) -> impl Iterator<Item = &SelectedFile> {
+        self.by_language.values().flat_map(NonEmpty::iter)
+    }
+
     pub fn language_keys(&self) -> impl Iterator<Item = &'static str> + '_ {
         self.by_language.keys().copied()
     }
@@ -826,6 +892,7 @@ impl DirectoryBatch {
 #[derive(Debug, Clone)]
 pub(crate) enum Evaluation {
     SingleFile { batch: Vec<SelectedFile> },
+    Paths { files: Vec<SelectedFile> },
     MultiFile { directories: Vec<DirectoryBatch> },
 }
 

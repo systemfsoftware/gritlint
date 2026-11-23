@@ -426,3 +426,61 @@ fn a_rule_with_a_locator_but_no_bad_case_asserting_a_range_fails() {
         failures[0].detail()
     );
 }
+
+const DOCS_LAYOUT_RULE: &str = "---\nreasonCode: docs-misplaced\nnextAction: Move the file into a plans folder.\n---\n# docs layout\n\nA file under docs/ is named like a plan.\n\n```path\nscope docs/.*\nallow docs/plans/[0-9]{4}-[a-z0-9]+(?:-[a-z0-9]+)*-plan\\.md\n```\n";
+
+#[test]
+fn a_path_rule_fixture_sees_an_extensionless_file_and_a_txt_file() {
+    let temp = tempfile::tempdir().expect("temp dir");
+    write(temp.path(), "layout.md", DOCS_LAYOUT_RULE);
+    write(
+        temp.path(),
+        "fixtures/layout/bad/stray/docs/foo.txt",
+        "stray\n",
+    );
+    write(
+        temp.path(),
+        "fixtures/layout/bad/stray/docs/README",
+        "bare\n",
+    );
+    write(
+        temp.path(),
+        "fixtures/layout/bad/stray/expected-locations.txt",
+        "local/layout docs/README\nlocal/layout docs/foo.txt\n",
+    );
+    write(
+        temp.path(),
+        "fixtures/layout/good/named/docs/plans/2026-a-plan.md",
+        "# a plan\n",
+    );
+
+    let outcome = run_fixtures(temp.path()).expect("run the fixtures");
+
+    assert!(outcome.passed(), "{outcome:#?}");
+    assert_eq!(outcome.results().len(), 2, "{outcome:#?}");
+}
+
+#[test]
+fn a_path_rule_fixture_fails_when_its_bad_case_misses_an_offender() {
+    let temp = tempfile::tempdir().expect("temp dir");
+    write(temp.path(), "layout.md", DOCS_LAYOUT_RULE);
+    write(
+        temp.path(),
+        "fixtures/layout/bad/stray/docs/foo.txt",
+        "stray\n",
+    );
+    write(
+        temp.path(),
+        "fixtures/layout/bad/stray/expected-locations.txt",
+        "local/layout docs/missing.txt\n",
+    );
+    write(
+        temp.path(),
+        "fixtures/layout/good/named/docs/plans/2026-a-plan.md",
+        "# a plan\n",
+    );
+
+    let outcome = run_fixtures(temp.path()).expect("run the fixtures");
+
+    assert!(!outcome.passed(), "{outcome:#?}");
+}
