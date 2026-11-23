@@ -1,0 +1,6 @@
+{
+  "compilerOptions": {
+    "lib": ["lib.dom.d.ts"],
+    "types": ["node"]
+  }
+}

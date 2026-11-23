@@ -9,6 +9,7 @@
       "sharedVitestConfigFile": "r\"(?:.*/)?vitest-config/lib/base\\.js\""
     },
     "typecheck-build-mode": {},
+    "tsconfig-roles": {},
     "ts-extensions": {},
     "build-output-imports": {},
     "npm-provenance": {

@@ -1,0 +1,1 @@
+tsconfig-roles/tsconfig-dom-extends-runtime-types packages/a/tsconfig.app.json

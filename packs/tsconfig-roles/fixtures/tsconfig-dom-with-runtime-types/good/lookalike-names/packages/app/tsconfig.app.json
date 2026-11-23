@@ -1,0 +1,6 @@
+{
+  "compilerOptions": {
+    "lib": ["DOM"],
+    "types": ["node-fetch", "@cloudflare/workers-types-extra"]
+  }
+}

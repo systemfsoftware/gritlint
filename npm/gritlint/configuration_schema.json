@@ -74,6 +74,12 @@
           "required": [],
           "additionalProperties": false
         },
+        "tsconfig-roles": {
+          "type": "object",
+          "properties": {},
+          "required": [],
+          "additionalProperties": false
+        },
         "typecheck-build-mode": {
           "type": "object",
           "properties": {},

@@ -1,0 +1,6 @@
+{
+  "extends": "./tsconfig.app",
+  "compilerOptions": {
+    "types": ["@cloudflare/workers-types"]
+  }
+}
