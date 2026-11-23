@@ -1,6 +1,6 @@
 #![allow(clippy::disallowed_methods, clippy::disallowed_types)]
 
-use crate::decode::{is_rule_file, is_scannable};
+use crate::decode::is_rule_file;
 use crate::domain::{
     IgnoreGlobs, Pack, RawFile, RawTree, RelPath, RuleSource, SelectedFiles, SourcePath, Sources,
 };
@@ -39,9 +39,7 @@ pub fn walk(root: &Path, ignore: &IgnoreGlobs) -> Vec<PathBuf> {
     let mut paths: Vec<PathBuf> = walker
         .filter_map(Result::ok)
         .filter(|entry| entry.file_type().is_some_and(|kind| kind.is_file()))
-        .filter(|entry| {
-            is_scannable(entry.path()) && !ignore.matches(&relative(root, entry.path()))
-        })
+        .filter(|entry| !ignore.matches(&relative(root, entry.path())))
         .map(ignore::DirEntry::into_path)
         .collect();
     paths.sort();

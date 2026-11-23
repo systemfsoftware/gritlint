@@ -31,6 +31,13 @@ pub fn biome(compiled: &CompiledRule, all: &[&CompiledRule]) -> Result<String, E
     let refuse = |reason, detail: String, next_action| {
         ExportRefusal::new(rule.id().as_string(), reason, detail, next_action)
     };
+    if compiled.kind() == RuleKind::Paths {
+        return Err(refuse(
+            ExportReason::PathOnly,
+            "the rule judges file paths, and a Biome plugin sees file contents.".to_owned(),
+            "keep this rule in `gritlint check`; a path rule never exports.",
+        ));
+    }
     if compiled.kind() == RuleKind::MultiFile {
         return Err(refuse(
             ExportReason::Multifile,

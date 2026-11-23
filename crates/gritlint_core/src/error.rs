@@ -47,6 +47,8 @@ pub enum GritlintError {
         "rule `{path}` declares no GritQL language; add e.g. `language json` inside its grit block"
     )]
     RuleNoLanguage { path: PathBuf },
+    #[error("rule `{path}` is a path rule and {problem}")]
+    RulePath { path: PathBuf, problem: String },
     #[error("rule `{path}`: frontmatter key `{key}` {problem}")]
     RuleFrontmatter {
         path: PathBuf,

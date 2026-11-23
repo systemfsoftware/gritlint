@@ -622,7 +622,7 @@ fn a_single_file_match_without_a_range_is_reported_at_its_file_alone() {
 }
 
 #[test]
-fn a_walk_returns_only_files_with_a_language_extension() {
+fn a_walk_returns_every_non_ignored_file_whatever_its_extension() {
     let temp = tempfile::tempdir().expect("temp dir");
     write(temp.path(), "package.json", "{\"react\": \"18\"}\n");
     write(
@@ -639,8 +639,12 @@ fn a_walk_returns_only_files_with_a_language_extension() {
 
     assert_eq!(
         walked,
-        [temp.path().join("package.json")],
-        "only the file whose extension names a language is walked"
+        [
+            temp.path().join("LICENSE"),
+            temp.path().join("notes.txt"),
+            temp.path().join("package.json"),
+        ],
+        "every non-ignored file is walked, whatever its extension"
     );
 }
 
@@ -871,4 +875,102 @@ fn a_plan_without_a_file_drops_its_single_file_entry_and_every_directory_batch_h
             "local/sibling-join b/package.json",
         ]
     );
+}
+
+fn path_rule(name: &str, block: &str) -> ParsedRule {
+    let source = RuleSource::new(
+        SourcePath::new(PathBuf::from(format!("{name}.md"))),
+        format!("{FRONTMATTER}\n# {name}\n\nPlans are named by date.\n\n```path\n{block}\n```\n"),
+    );
+    decode::parse_rule(None, &source).expect("parse the path rule")
+}
+
+fn flagged(outcome: &Outcome) -> BTreeSet<String> {
+    outcome
+        .findings()
+        .iter()
+        .map(|finding| finding.location().path().as_str().to_owned())
+        .collect()
+}
+
+const PLANS: &str = "scope docs/.*\nallow docs/plans/[0-9]{4}-[a-z0-9]+(?:-[a-z0-9]+)*-plan\\.md";
+
+#[test]
+fn a_path_rule_names_every_offending_path_whatever_its_extension() {
+    let temp = tempfile::tempdir().expect("temp dir");
+    write(temp.path(), "docs/plans/2026-good-plan.md", "# a plan\n");
+    write(temp.path(), "docs/plans/bad-name.md", "# misnamed\n");
+    write(temp.path(), "docs/plans/other-bad.md", "# also misnamed\n");
+    write(temp.path(), "docs/foo.txt", "stray text\n");
+    write(temp.path(), "docs/README", "no extension\n");
+    write(
+        temp.path(),
+        "src/elsewhere.txt",
+        "outside the rule's scope\n",
+    );
+
+    let outcome = scan(temp.path(), &[path_rule("layout", PLANS)], &[])
+        .expect("a path rule never reads or parses the files it judges");
+
+    assert_eq!(
+        flagged(&outcome),
+        BTreeSet::from([
+            "docs/README".to_owned(),
+            "docs/foo.txt".to_owned(),
+            "docs/plans/bad-name.md".to_owned(),
+            "docs/plans/other-bad.md".to_owned(),
+        ]),
+        "the .txt, the extensionless file and both misnamed plans are flagged, one finding each; the good plan and the file outside the scope are not"
+    );
+}
+
+#[test]
+fn a_path_pattern_matches_the_whole_path_not_a_substring() {
+    let temp = tempfile::tempdir().expect("temp dir");
+    write(temp.path(), "docs/a.md", "x\n");
+    write(temp.path(), "docs/a.md.bak", "x\n");
+    write(temp.path(), "docs/xa.md", "x\n");
+
+    let outcome = scan(
+        temp.path(),
+        &[path_rule("layout", "scope docs/.*\nallow docs/a\\.md")],
+        &[],
+    )
+    .expect("scan");
+
+    assert_eq!(
+        flagged(&outcome),
+        BTreeSet::from(["docs/a.md.bak".to_owned(), "docs/xa.md".to_owned()])
+    );
+}
+
+#[test]
+fn a_path_rule_does_not_make_other_rules_read_unparsed_files() {
+    let temp = tempfile::tempdir().expect("temp dir");
+    write(temp.path(), "package.json", "{\"react\": \"1\"}");
+    write(temp.path(), "notes.txt", "{{ not json at all");
+    write(temp.path(), "LICENSE", "not json either");
+
+    let outcome = scan(temp.path(), &[rule("react", REACT_PAIR)], &[])
+        .expect("an unparsed file is never handed to a rule's language");
+
+    assert_eq!(outcome.findings().len(), 1, "{:?}", outcome.findings());
+}
+
+#[test]
+fn a_path_rule_with_a_locate_key_or_a_stray_line_refuses_to_load() {
+    let located = RuleSource::new(
+        SourcePath::new(PathBuf::from("located.md")),
+        "---\nreasonCode: test-reason\nnextAction: Fix it.\nlocate: `x`\n---\n# t\n\n```path\nscope a\n```\n"
+            .to_owned(),
+    );
+    let error = decode::parse_rule(None, &located).expect_err("a path rule has nothing to locate");
+    assert!(error.to_string().contains("locate"), "{error}");
+
+    let stray = RuleSource::new(
+        SourcePath::new(PathBuf::from("stray.md")),
+        format!("{FRONTMATTER}# t\n\n```path\nforbid docs/.*\n```\n"),
+    );
+    let error = decode::parse_rule(None, &stray).expect_err("an unknown line is refused");
+    assert!(error.to_string().contains("forbid docs/.*"), "{error}");
 }

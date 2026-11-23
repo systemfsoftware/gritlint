@@ -1,7 +1,8 @@
 use crate::domain::{
     CompiledRule, EmbeddedFile, FixtureCase, FixtureLayout, FixtureRule, FixtureUnit, Guidance,
-    IgnoreGlobs, Language, NonEmpty, Pack, PackName, ParamName, ParsedRule, RawTree, ReasonCode,
-    RelPath, RuleId, RuleName, RuleSource, SelectedFile, SelectedFiles, SourcePath, Sources,
+    IgnoreGlobs, Language, NonEmpty, Pack, PackName, ParamName, ParsedRule, PathPolicy, RawTree,
+    ReasonCode, RelPath, RuleId, RuleName, RuleSource, SelectedFile, SelectedFiles, SourcePath,
+    Sources,
 };
 use crate::error::{FrontmatterProblem, GritlintError};
 use globset::{Glob, GlobSetBuilder};
@@ -199,17 +200,45 @@ pub fn parse_rule(
     );
 
     let (guidance, locate, text) = read_and_blank_frontmatter(source.text(), path)?;
-    let (message, body) = if is_markdown(path) {
-        let (description, body) = parse_markdown(&text, path)?;
+    let (message, body, path_rule) = if is_markdown(path) {
+        let (description, body, path_rule) = parse_markdown(&text, path)?;
         let message = if description.is_empty() {
             stem.clone()
         } else {
             description
         };
-        (message, body)
+        (message, body, path_rule)
     } else {
-        (stem.clone(), text)
+        (stem.clone(), text, false)
     };
+
+    if path_rule {
+        let refuse = |problem: String| GritlintError::RulePath {
+            path: path.to_owned(),
+            problem,
+        };
+        if locate.is_some() {
+            return Err(refuse(
+                "has no text to locate in; remove its `locate` key".to_owned(),
+            ));
+        }
+        let policy = parse_path_policy(&body).map_err(refuse)?;
+        let language = Language::unparsed().ok_or_else(|| GritlintError::RuleNoLanguage {
+            path: path.to_owned(),
+        })?;
+        return Ok(ParsedRule::assemble(
+            id,
+            name,
+            message,
+            body,
+            source.path().clone(),
+            language,
+            Vec::new(),
+            guidance,
+            None,
+        )
+        .with_paths(policy));
+    }
 
     let language = Language::of_body(&body).ok_or_else(|| GritlintError::RuleNoLanguage {
         path: path.to_owned(),
@@ -372,7 +401,7 @@ pub fn select_files(paths: Vec<PathBuf>, root: &Path) -> Result<SelectedFiles, G
     let files = paths
         .into_iter()
         .map(|path| -> Result<Option<SelectedFile>, GritlintError> {
-            match language_of(&path) {
+            match language_of(&path).or_else(Language::unparsed) {
                 None => Ok(None),
                 Some(language) => RelPath::from_root(root, &path)
                     .map(|relative| Some(SelectedFile::new(language, relative)))
@@ -435,11 +464,6 @@ pub fn fixture_layout(tree: &RawTree) -> Result<FixtureLayout, GritlintError> {
             .collect::<Result<Vec<_>, _>>()
             .map(FixtureLayout::new)
     }
-}
-
-#[must_use]
-pub fn is_scannable(path: &Path) -> bool {
-    language_of(path).is_some()
 }
 
 #[must_use]
@@ -634,7 +658,7 @@ fn select_case_files(
         .filter(|file| file.path().starts_with(case_directory))
         .filter(|file| !skipped(file.path(), case_directory))
         .map(|file| -> Result<Option<CaseEntry>, GritlintError> {
-            match language_of(file.path()) {
+            match language_of(file.path()).or_else(Language::unparsed) {
                 None => Ok(None),
                 Some(language) => RelPath::from_root(case_directory, file.path())
                     .map(|relative| {
@@ -712,16 +736,47 @@ fn is_markdown(path: &Path) -> bool {
         .is_some_and(|extension| extension.eq_ignore_ascii_case("md"))
 }
 
-fn parse_markdown(text: &str, path: &Path) -> Result<(String, String), GritlintError> {
+/// Reads a path rule's block: `scope <regex>` at most once, then any number of `allow <regex>`.
+/// The rest of the line is the regex, unquoted; blank lines and `#` comments are skipped.
+fn parse_path_policy(body: &str) -> Result<PathPolicy, String> {
+    let anchored = |pattern: &str| {
+        Regex::new(&format!(r"\A(?:{pattern})\z")).map_err(|error| {
+            format!("holds the pattern `{pattern}`, which is not a regex: {error}")
+        })
+    };
+    let mut scope: Option<Regex> = None;
+    let mut allow = Vec::new();
+    for line in body
+        .lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty() && !line.starts_with('#'))
+    {
+        match line.split_once(char::is_whitespace) {
+            Some(("scope", pattern)) if scope.is_none() => scope = Some(anchored(pattern.trim())?),
+            Some(("scope", _)) => return Err("declares `scope` twice".to_owned()),
+            Some(("allow", pattern)) => allow.push(anchored(pattern.trim())?),
+            _ => {
+                return Err(format!(
+                    "holds the line `{line}`; a path block takes `scope <regex>` and `allow <regex>` lines"
+                ));
+            }
+        }
+    }
+    Ok(PathPolicy::new(scope, allow))
+}
+
+fn parse_markdown(text: &str, path: &Path) -> Result<(String, String, bool), GritlintError> {
     let lines: Vec<&str> = text.lines().collect();
 
     let mut cursor = 0;
     let mut title_line: Option<usize> = None;
     let mut grit: Option<(usize, usize)> = None;
+    let mut path_rule = false;
     while let Some(line) = lines.get(cursor) {
         let trimmed = line.trim();
         if trimmed.starts_with("```") {
-            let is_grit = trimmed.starts_with("```grit");
+            let is_path = trimmed == "```path";
+            let is_grit = trimmed.starts_with("```grit") || is_path;
             let open = cursor + 1;
             let close = (open..lines.len())
                 .find(|index| lines.get(*index).is_some_and(|line| line.trim() == "```"))
@@ -733,6 +788,7 @@ fn parse_markdown(text: &str, path: &Path) -> Result<(String, String), GritlintE
                     });
                 }
                 grit = Some((cursor, close));
+                path_rule = is_path;
             }
             cursor = close + 1;
             continue;
@@ -763,7 +819,7 @@ fn parse_markdown(text: &str, path: &Path) -> Result<(String, String), GritlintE
         .join("\n")
         .trim()
         .to_owned();
-    Ok((description, body))
+    Ok((description, body, path_rule))
 }
 
 fn file_targets(body: &str) -> Vec<Regex> {
