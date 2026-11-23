@@ -5,7 +5,7 @@ nextAction: Make tsconfig.json a solution file, `"files": []` with `"references"
 
 # `tsconfig.json` is a solution file
 
-A `tsconfig.json` must declare `"files": []` and must not declare `include`. It
+A `tsconfig.json` must declare `"files": []` and must not declare `include`, both at the top level of the file. It
 owns no source file; it only lists, in `references`, the role configs that do.
 
 A `tsconfig.json` that compiles files itself is a second, unnamed role beside
@@ -23,8 +23,19 @@ multifile {
   file($name, $body) where {
     $name <: r"(?:.*/)?tsconfig\.json",
     $program <: or {
-      not contains `"files": []`,
-      contains `"include": $_`
+      contains `{ $... }` as $root where {
+        $root <: not within or { pair(), array() },
+        $root <: or {
+          not `{ $..., "files": [], $... }`,
+          `{ $..., "include": $_, $... }`
+        }
+      },
+      contains `"files": $files` as $pair where {
+        $files <: not r"\[\s*\]",
+        $pair <: not within `{ $... }` as $inner where {
+          $inner <: within or { pair(), array() }
+        }
+      }
     }
   }
 }

@@ -1,0 +1,4 @@
+{
+  "files": [],
+  "compilerOptions": { "plugins": [{ "include": ["x"] }] }
+}

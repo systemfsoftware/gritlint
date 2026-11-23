@@ -1,0 +1,1 @@
+tsconfig-roles/tsconfig-solution-file tsconfig.json

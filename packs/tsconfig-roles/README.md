@@ -13,8 +13,8 @@ Four rules that keep a repository's tsconfig files to a closed set of roles.
 - `tsconfig-reference-outside-package` fails a `tsconfig.json` `references` path
   that has a `..` segment or is absolute, because it reaches another package's
   project.
-- `tsconfig-dom-with-runtime-types` fails one `compilerOptions` that lists `DOM`
-  (or `DOM.Iterable`, `DOM.AsyncIterable`, `lib.dom.d.ts`) in `lib` and `node`,
+- `tsconfig-dom-with-runtime-types` fails one `tsconfig*.json` whose own `compilerOptions` lists `DOM`
+  (or `DOM.Iterable`, `DOM.AsyncIterable`, `lib.dom.d.ts`) directly in `lib` and `node`,
   `@types/node` or `@cloudflare/workers-types` in `types`.
 
 ## What the rules cannot see

@@ -6,8 +6,8 @@ nextAction: Reference only role configs in the same directory (`./tsconfig.app.j
 # `tsconfig.json` references stay inside its own directory
 
 A `tsconfig.json` `references` entry names a path inside the directory of the
-file that declares it. A path with a `..` segment, or an absolute path, reaches
-another package's project.
+file that declares it. A path with a `..` segment, or an absolute path (`/x`, `C:/x`,
+`\\x`), reaches another package's project. Both `/` and `\` separate segments.
 
 A reference across a package boundary makes this package's `tsc -b` build the
 other package's project graph as well, so one package's typecheck pulls in and
@@ -25,7 +25,7 @@ multifile {
     $name <: r"(?:.*/)?tsconfig\.json",
     $program <: contains `"references": $references` where {
       $references <: contains `"path": $path` where {
-        $path <: r"\"(?:/.*|(?:.*/)?\.\.(?:/.*)?)\""
+        $path <: r"\"(?:/.*|\\\\.*|[A-Za-z]:.*|(?:.*(?:/|\\\\))?\.\.(?:(?:/|\\\\).*)?)\""
       }
     }
   }

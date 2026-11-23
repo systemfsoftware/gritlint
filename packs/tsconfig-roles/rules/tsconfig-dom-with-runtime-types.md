@@ -1,7 +1,6 @@
 ---
 reasonCode: tsconfig-dom-with-runtime-types
 nextAction: Split the config by runtime: keep `DOM` in the browser role (tsconfig.app.json) and `node` or `@cloudflare/workers-types` in the runtime role (tsconfig.node.json).
-locate: `"compilerOptions": $options` where { $options <: contains `"lib": $lib` where { $lib <: contains r"\"(?i:dom(?:\.[a-z]+)?|lib\.dom(?:\.[a-z]+)?\.d\.ts)\"" }, $options <: contains `"types": $types` where { $types <: contains r"\"(?:node|@types/node|@cloudflare/workers-types(?:/[^\"]*)?)\"" } }
 ---
 
 # One config does not combine browser and server runtime types
@@ -16,7 +15,7 @@ that loads both type sets resolves each global to whichever declaration wins,
 so code that is wrong in one runtime typechecks, and a server module can read
 `window` without an error.
 
-Only this one file is read: `lib` or `types` inherited through `extends` is not
+Only the direct `lib` and `types` of one `tsconfig*.json` are read: `lib` or `types` inherited through `extends` is not
 resolved, so a combination that exists only after inheritance is not seen.
 
 Fix it by giving each runtime its own role config: `DOM` in the browser role and
@@ -24,13 +23,17 @@ Fix it by giving each runtime its own role config: `DOM` in the browser role and
 
 ```grit
 language json
-
-`"compilerOptions": $options` where {
-  $options <: contains `"lib": $lib` where {
-    $lib <: contains r"\"(?i:dom(?:\.[a-z]+)?|lib\.dom(?:\.[a-z]+)?\.d\.ts)\""
-  },
-  $options <: contains `"types": $types` where {
-    $types <: contains r"\"(?:node|@types/node|@cloudflare/workers-types(?:/[^\"]*)?)\""
+multifile {
+  file($name, $body) where {
+    $name <: r"(?:.*/)?tsconfig(?:\.[^/]+)?\.json",
+    $program <: contains `"compilerOptions": { $... }` as $options where {
+      $options <: or {
+        `"compilerOptions": { $..., "lib": $lib, $..., "types": $types, $... }`,
+        `"compilerOptions": { $..., "types": $types, $..., "lib": $lib, $... }`
+      },
+      $lib <: contains r"\"(?i:dom(?:\.[a-z]+)?|lib\.dom(?:\.[a-z]+)?\.d\.ts)\"",
+      $types <: contains r"\"(?:node|@types/node|@cloudflare/workers-types(?:/[^\"]*)?)\""
+    }
   }
 }
 ```
