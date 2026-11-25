@@ -18,7 +18,7 @@ die() {
 green_sha() {
   jq -r "$JQ_EXPECT_ARRAY"'
     expect_array("workflow_runs"; "runs")
-    | [.workflow_runs[] | select(.head_branch == "main" and .event == "push" and .conclusion == "success")]
+    | [.workflow_runs[] | select(.head_branch == "main" and (.event == "push" or .event == "workflow_dispatch") and .conclusion == "success")]
     | max_by(.created_at)
     | if . == null then empty
       elif (.head_sha | type) == "string" and (.head_sha | test("^[0-9a-f]{40}$")) then .head_sha
@@ -49,7 +49,6 @@ mode() {
         return
       fi
       ;;
-    push) ;;
     *) die "unexpected event '$event'" ;;
   esac
 
@@ -61,16 +60,14 @@ mode() {
     emit full "" "green main run $green is not an ancestor of $head"
     return
   fi
-  if [ "$event" = push ]; then
-    local changed
-    changed=$(git diff --name-only "$green" "$head")
-    for file in "${FULL_RUN_TRIGGERS[@]}"; do
-      if grep -qxF -- "$file" <<<"$changed"; then
-        emit full "" "$file changed since green main run $green"
-        return
-      fi
-    done
-  fi
+  local changed
+  changed=$(git diff --name-only "$green" "$head")
+  for file in "${FULL_RUN_TRIGGERS[@]}"; do
+    if grep -qxF -- "$file" <<<"$changed"; then
+      emit full "" "$file changed since green main run $green"
+      return
+    fi
+  done
   emit in-diff "$green" "diff from green main run $green"
 }
 

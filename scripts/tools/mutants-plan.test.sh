@@ -40,8 +40,8 @@ expect_refusal() {
   fi
 }
 
-expect "green: newest successful push run on main, past a newer failure, a dispatch and another branch" \
-  2222222222222222222222222222222222222222 "${plan[@]}" green-sha "$fixtures/runs-green.json"
+expect "green: newest successful push or dispatch run on main, past a newer failure and another branch" \
+  3333333333333333333333333333333333333333 "${plan[@]}" green-sha "$fixtures/runs-green.json"
 expect "green: nothing when no main run succeeded" "" "${plan[@]}" green-sha "$fixtures/runs-none-green.json"
 expect "green: nothing when the workflow never ran" "" "${plan[@]}" green-sha "$fixtures/runs-empty.json"
 expect_refusal "green: an API error body is a failure, not 'no green run'" "Bad credentials" \
@@ -77,28 +77,24 @@ H_nested=$(head_after nested other/.cargo/mutants.toml)
 mode() { (cd "$repo" && "${plan[@]}" mode "$@"); }
 lines() { printf '%s\n' "$@"; }
 
-expect "mode: a push diffs from the green run" \
-  "$(lines mode=in-diff "base=$A" "reason=diff from green main run $A")" mode push "" "" "$A" "$H_rs"
-expect "mode: a push with no green run runs full" \
-  "$(lines mode=full base= "reason=no green main run")" mode push "" "" "" "$H_rs"
-expect "mode: a push whose green run is not an ancestor runs full" \
-  "$(lines mode=full base= "reason=green main run $D is not an ancestor of $H_rs")" mode push "" "" "$D" "$H_rs"
-expect "mode: a push that changes .cargo/mutants.toml runs full" \
-  "$(lines mode=full base= "reason=.cargo/mutants.toml changed since green main run $A")" mode push "" "" "$A" "$H_toml"
-expect "mode: a push that changes the mutants workflow runs full" \
+expect "mode: a dispatched in-diff run without base diffs from the green run" \
+  "$(lines mode=in-diff "base=$A" "reason=diff from green main run $A")" mode workflow_dispatch in-diff "" "$A" "$H_rs"
+expect "mode: a dispatched in-diff run without base whose green run is not an ancestor runs full" \
+  "$(lines mode=full base= "reason=green main run $D is not an ancestor of $H_rs")" mode workflow_dispatch in-diff "" "$D" "$H_rs"
+expect "mode: a dispatched in-diff run without base that changes .cargo/mutants.toml runs full" \
+  "$(lines mode=full base= "reason=.cargo/mutants.toml changed since green main run $A")" mode workflow_dispatch in-diff "" "$A" "$H_toml"
+expect "mode: a dispatched in-diff run without base that changes the mutants workflow runs full" \
   "$(lines mode=full base= "reason=.github/workflows/mutants.yml changed since green main run $A")" \
-  mode push "" "" "$A" "$H_workflow"
-expect "mode: a push that changes only tests and Cargo.lock stays in-diff" \
-  "$(lines mode=in-diff "base=$A" "reason=diff from green main run $A")" mode push "" "" "$A" "$H_tests"
+  mode workflow_dispatch in-diff "" "$A" "$H_workflow"
+expect "mode: a dispatched in-diff run without base that changes only tests and Cargo.lock stays in-diff" \
+  "$(lines mode=in-diff "base=$A" "reason=diff from green main run $A")" mode workflow_dispatch in-diff "" "$A" "$H_tests"
 expect "mode: only the root .cargo/mutants.toml forces a full run" \
-  "$(lines mode=in-diff "base=$A" "reason=diff from green main run $A")" mode push "" "" "$A" "$H_nested"
+  "$(lines mode=in-diff "base=$A" "reason=diff from green main run $A")" mode workflow_dispatch in-diff "" "$A" "$H_nested"
 expect "mode: a dispatched full run is full" \
   "$(lines mode=full base= "reason=dispatched full run")" mode workflow_dispatch full "" "$A" "$H_rs"
 expect "mode: a dispatched in-diff base wins over a config change and the green run" \
   "$(lines mode=in-diff "base=$A" "reason=dispatched in-diff run from the given base")" \
   mode workflow_dispatch in-diff "${A:0:7}" "$B" "$H_workflow"
-expect "mode: a dispatched in-diff run without base diffs from the green run" \
-  "$(lines mode=in-diff "base=$B" "reason=diff from green main run $B")" mode workflow_dispatch in-diff "" "$B" "$H_toml"
 expect "mode: a dispatched in-diff run without base or green run is full" \
   "$(lines mode=full base= "reason=no green main run")" mode workflow_dispatch in-diff "" "" "$H_rs"
 expect_refusal "mode: a dispatched base that is not an ancestor is refused" "is not an ancestor of $H_rs" \
