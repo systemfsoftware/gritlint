@@ -99,7 +99,7 @@ in
     in
     runCommand "gritlint-vendor-sync" { } ''
       { (cd ${engine} && find ${lib.escapeShellArgs roots} -type f); (cd ${vendored} && find . -type f | sed 's|^\./||'); } |
-        sort -u | grep -vxE 'README\.md|common/scanner\.h' > files
+        sort -u | grep -vxE 'README\.md|common/scanner\.h|patch-grammar\.py|(typescript|tsx)/src/(grammar\.json|node-types\.json|parser\.c|tree_sitter/[a-z]+\.h)' > files
       stale=0
       while read -r f; do
         if ! cmp -s "${engine}/$f" "${vendored}/$f"; then
@@ -108,7 +108,7 @@ in
         fi
       done < files
       if [ "$stale" -ne 0 ]; then
-        echo "vendor/tree-sitter-typescript differs from the engine's grammar at the pinned rev: copy that rev's files over it and re-apply the common/scanner.h change (its README)" >&2
+        echo "vendor/tree-sitter-typescript differs from the engine's grammar at the pinned rev: copy that rev's files over it and re-apply the scanner change and patch-grammar.py (its README)" >&2
         exit 1
       fi
       touch $out
