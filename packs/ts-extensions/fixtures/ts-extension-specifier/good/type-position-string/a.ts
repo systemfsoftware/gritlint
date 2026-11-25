@@ -1,1 +1,0 @@
-type Path = './y.ts';
