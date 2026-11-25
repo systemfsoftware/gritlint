@@ -19,8 +19,8 @@ specifiers on its own breaks on a path that does not exist in the published
 output.
 
 Fix it by deleting the option and writing every specifier without an extension,
-or with the `.js` extension that the emitted file will carry. The sibling rule
-`ts-extension-specifier` fails the specifiers themselves.
+or with the `.js` extension that the emitted file will carry. With both options
+off, the compiler rejects the specifiers themselves.
 
 ```grit
 language json

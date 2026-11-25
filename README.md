@@ -37,8 +37,7 @@ These packs ship with the CLI:
 | `source-resolution` | A workspace package's name resolves to its `src/` for workspace tools and to `dist/` for registry consumers, across the export map, tsconfig, Vite and api-extractor. |
 | `typecheck-build-mode` | A reference-only tsconfig root's `typecheck` script runs `tsc -b`, so it reaches the referenced projects. |
 | `tsconfig-roles` | Every tsconfig file is one of a closed set of roles, `tsconfig.json` is a solution file whose references stay in its directory, and no config combines `DOM` with `node` or Worker types. |
-| `ts-extensions` | No tsconfig option allows a `.ts` extension in an import, and no import, export-from or dynamic import specifier ends in `.ts`, `.tsx`, `.mts` or `.cts`. |
-| `build-output-imports` | No import, export-from or dynamic import specifier reaches into another package's `dist/` by path; packages are imported by name and an `exports` subpath. |
+| `ts-extensions` | No tsconfig option allows a `.ts` extension in an import; with both off, the compiler rejects a `.ts`, `.tsx`, `.mts` or `.cts` specifier itself. |
 | `npm-provenance` | Public npm packages publish with trusted publishing (OIDC) and provenance. |
 
 Each pack's README lists its rules and its parameters.
