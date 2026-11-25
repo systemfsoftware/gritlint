@@ -64,7 +64,7 @@ jobs:
           INPUT_MODE: ${{ inputs.mode }}
           INPUT_BASE: ${{ inputs.base }}
         run: |
-          gh api "repos/$GITHUB_REPOSITORY/actions/workflows/mutants.yml/runs?branch=main&event=push&status=success&per_page=20" > "$RUNNER_TEMP/green.json" ||
+          gh api "repos/$GITHUB_REPOSITORY/actions/workflows/mutants.yml/runs?branch=main&status=success&per_page=20" > "$RUNNER_TEMP/green.json" ||
             { echo "::error::cannot list the successful Mutants runs on main"; exit 1; }
           green=$($PLAN green-sha "$RUNNER_TEMP/green.json")
           $PLAN mode "$EVENT" "$INPUT_MODE" "$INPUT_BASE" "$green" "$GITHUB_SHA" | tee -a "$GITHUB_OUTPUT"
