@@ -160,8 +160,12 @@ fn the_refusal_names_every_unparseable_file_in_path_order() {
         .expect_err("a malformed target file is an instrument error");
 
     let text = error.to_string();
-    let first = text.find("a/tsconfig.json").expect("the first file is named");
-    let second = text.find("b/tsconfig.json").expect("the second file is named");
+    let first = text
+        .find("a/tsconfig.json")
+        .expect("the first file is named");
+    let second = text
+        .find("b/tsconfig.json")
+        .expect("the second file is named");
     assert!(
         first < second,
         "every refused file is named once, in path order, whatever the thread schedule: {text}"
