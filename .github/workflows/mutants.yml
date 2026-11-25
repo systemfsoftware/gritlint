@@ -1,8 +1,7 @@
 name: Mutants
 
+# Run by hand only (Actions > Mutants > Run workflow): a push to main does not start it.
 on:
-  push:
-    branches: [main]
   workflow_dispatch:
     inputs:
       mode:
