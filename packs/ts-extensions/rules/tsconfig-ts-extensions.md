@@ -20,7 +20,9 @@ output.
 
 Fix it by deleting the option and writing every specifier without an extension,
 or with the `.js` extension that the emitted file will carry. With both options
-off, the compiler rejects the specifiers themselves.
+off, the compiler rejects such a specifier in an `import`, `export ... from` or
+`import()` of a file it checks (TS5097), though not in a type-position
+`import()` type.
 
 ```grit
 language json
