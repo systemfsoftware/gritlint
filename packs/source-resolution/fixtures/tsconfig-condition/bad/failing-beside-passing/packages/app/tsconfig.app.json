@@ -1,0 +1,6 @@
+{
+  "compilerOptions": {
+    "customConditions": ["@systemfsoftware/source"]
+  },
+  "include": ["src"]
+}

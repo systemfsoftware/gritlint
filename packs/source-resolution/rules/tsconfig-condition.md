@@ -1,7 +1,7 @@
 ---
 reasonCode: tsconfig-missing-condition
 nextAction: List the source condition in this project's `customConditions`, or extend a preset that carries it.
-locate: `"customConditions": $list` where { $list <: not contains condition() }
+locate: or { `"customConditions": $list` where { $list <: not contains condition(), $program <: contains `"include": [$first, $...]`, $program <: not contains `"extends": $extends` where { $extends <: or { presets(), contains presets(), includes "./" } } }, `"include": [$first, $...]` where { $program <: not contains `"customConditions": $_`, $program <: not contains `"extends": $extends` where { $extends <: or { presets(), contains presets(), includes "./" } } } }
 ---
 
 # tsconfig project: name the source condition, or extend a config that does

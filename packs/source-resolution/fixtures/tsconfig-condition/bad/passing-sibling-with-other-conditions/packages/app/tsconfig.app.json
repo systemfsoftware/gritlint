@@ -1,0 +1,7 @@
+{
+  "extends": "@systemfsoftware/tsconfig/bundler/dom",
+  "compilerOptions": {
+    "customConditions": ["browser"]
+  },
+  "include": ["src"]
+}
