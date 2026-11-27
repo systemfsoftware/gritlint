@@ -1,0 +1,11 @@
+{
+  "name": "@acme/app",
+  "gritlint": { "resolve": "dist" },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.mjs"
+    },
+    "./package.json": "./package.json"
+  }
+}

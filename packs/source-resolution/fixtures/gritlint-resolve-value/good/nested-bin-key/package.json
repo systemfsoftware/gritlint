@@ -1,0 +1,4 @@
+{
+  "name": "@acme/app",
+  "bin": { "gritlint": "bin/gritlint.js" }
+}

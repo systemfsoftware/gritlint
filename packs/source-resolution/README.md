@@ -11,7 +11,10 @@ source).
 | ----------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
 | `export-map-order`            | every `exports` object subpath: condition first, then `types` into `dist/`, then `default` — only in a package with a bundler config      |
 | `publish-config-exports`      | `publishConfig.exports` exists, holds no bare-string subpath, and carries no condition                                                    |
-| `tsdown-exports`              | the bundler config names `devExports` as the condition string, declares `customExports`, and does not set `clean: false`                  |
+| `tsdown-exports`              | the bundler config declares `customExports`, names `devExports` as the condition string when it sets it, and does not set `clean: false`  |
+| `tsdown-source-condition-required` | in a package with a bundler config and no `dist` declaration, every built `exports` subpath carries the condition                         |
+| `dist-resolve-no-source-condition` | a package that declares `"gritlint": { "resolve": "dist" }` carries the condition on no `exports` subpath                                 |
+| `gritlint-resolve-value`      | a `"gritlint"` key in `package.json` is exactly `{ "resolve": "dist" }`                                                                   |
 | `tsconfig-condition`          | a project with a non-empty `include` names the condition in `customConditions`, extends a configured preset, or extends a sibling project |
 | `tsconfig-preset-module-mode` | a declared preset resolves a NodeNext/Node16/Bundler/preserve module mode and does not clear or mis-name the condition                    |
 | `vitest-conditions`           | a Vitest config imports the shared config, or sets both `resolve.conditions` and `ssr.resolve.conditions`                                 |
@@ -19,6 +22,14 @@ source).
 | `api-extractor-tsconfig`      | the extractor's `compiler.tsconfigFilePath` target clears `customConditions`                                                              |
 | `internals-export-map`        | a package **without** a bundler config carries no condition in its export map                                                             |
 | `tsconfig-paths`              | no tsconfig maps the package's own published name, or a subpath of it, through `compilerOptions.paths`                                    |
+
+## Resolving a package to `dist/`
+
+A package's workspace consumers resolve its `src/` through the condition by
+default. A `package.json` that declares `"gritlint": { "resolve": "dist" }` moves
+them to its built `dist/` instead: its export map then carries the condition on
+no subpath, and its bundler config leaves `devExports` out. The declaration alone
+decides; the rules check that the export map agrees with it.
 
 ## Enable it
 
