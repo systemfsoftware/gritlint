@@ -1,0 +1,11 @@
+{
+  "name": "@acme/app",
+  "gritlint": { "resolve": "dist" },
+  "exports": {
+    "./tools": {
+      "@systemfsoftware/source": "./src/index.ts",
+      "types": "./dist/tools.d.ts",
+      "default": "./dist/tools.mjs"
+    }
+  }
+}

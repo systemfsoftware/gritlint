@@ -1,0 +1,4 @@
+{
+  "name": "@acme/app",
+  "exports": "./src/index.ts"
+}
