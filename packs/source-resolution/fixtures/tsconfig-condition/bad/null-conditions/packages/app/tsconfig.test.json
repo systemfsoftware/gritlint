@@ -1,0 +1,6 @@
+{
+  "compilerOptions": {
+    "customConditions": null
+  },
+  "include": ["src"]
+}
