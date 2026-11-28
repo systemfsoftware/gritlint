@@ -34,16 +34,23 @@ The rule follows an `extends` entry written `./<file>` (or `.\\<file>`), a
 string or an item of the array form, naming a file in the same directory, one
 hop. A `false` the test config sets for a flag overrides that flag from the file
 it extends, so an inherited `true` is judged only when the test config does not
-turn that same flag off. It does not follow a preset reached through a package
-name (`@scope/tsconfig/test.json`), an `extends` that climbs to another
-directory, or a chain of more than one `extends`. A config reached through any
-of them must carry the three explicit `false` values itself, because gritlint
-cannot read what it sets; the rule requires them for every `extends` entry it
-cannot follow.
+turn that same flag off. A same-directory file it extends that itself has an
+`extends` is unfollowable, because the rule does not read past one hop: the test
+config must then carry the three explicit `false` values itself. It does not
+follow a preset reached through a package name (`@scope/tsconfig/test.json`), an
+`extends` that climbs to another directory, or a chain of more than one
+`extends`. A config reached through any of them must carry the three explicit
+`false` values itself, because gritlint cannot read what it sets; the rule
+requires them for every `extends` entry it cannot follow.
 
-A file with comments is parsed and judged. A trailing comma does not parse, so
-gritlint reports `target-does-not-parse` for the file and refuses the run; it
-never skips a file silently.
+A key written twice — `"composite": true, "composite": false` — is reported when
+the first value is `true`: the pattern reads the first matching pair, and
+TypeScript keeps the last value, which a pattern cannot compare by position.
+
+Comments are parsed and judged. A trailing comma does not parse: the `json`
+grammar every rule in this pack shares rejects it, so gritlint reports
+`target-does-not-parse` for the file and fails the run rather than passing the
+file silently.
 
 ```grit
 language json
@@ -59,7 +66,8 @@ multifile {
       and {
         $name <: r"(?:.*/)?tsconfig\.test\.json",
         $key = $name
-      }
+      },
+      $root <: `{ $..., "extends": $key, $... }`
     }
   },
   bubble($dir, $base, $key) file($name, $body) where {
@@ -74,7 +82,19 @@ multifile {
         $ext <: contains r"\"(?:\./|\.\\\\)(.+?)(?:\.json)?\""($extended) where {
           $extended <: $base
         },
+        $key <: r"\"(?:composite|declaration|emitDeclarationOnly)\"",
         $root <: not `{ $..., "compilerOptions": { $..., $key: false, $... }, $... }`
+      },
+      `{ $..., "extends": $ext, $... }` where {
+        $ext <: contains r"\"(?:\./|\.\\\\)(.+?)(?:\.json)?\""($extended) where {
+          $extended <: $base
+        },
+        $key <: not r"\"(?:composite|declaration|emitDeclarationOnly)\"",
+        $root <: not `{ $..., "compilerOptions": $options, $... }` where {
+          $options <: contains `"composite": false`,
+          $options <: contains `"declaration": false`,
+          $options <: contains `"emitDeclarationOnly": false`
+        }
       },
       `{ $..., "extends": $ext, $... }` where {
         $ext <: contains r"\"(?:\.\.|\./[^\"]*(?:/|\\\\)|\.\\\\[^\"]*(?:/|\\\\)|/|\\\\|[A-Za-z]:|[^.\"/\\\\])[^\"]*\"",

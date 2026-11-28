@@ -18,7 +18,10 @@ R4. `tsconfig-test-unreferenced` and `typecheck-build-mode` are unchanged. A non
 
 - Bad: `composite` true; `declaration` true; `emitDeclarationOnly` true; `composite` true inherited from a same-directory `extends`; an external `extends` without the three explicit `false` values.
 - Good: an external `extends` with all three `false` values; a test config with no `compilerOptions` and no `extends`.
-- A file with comments and trailing commas is parsed and judged, not skipped.
+- A file with comments is parsed and judged. A file with a trailing comma does
+  not parse: the `json` grammar every rule in the pack shares rejects it, so
+  gritlint reports `target-does-not-parse` and fails the run rather than passing
+  the file silently; the fixtures carry comments only.
 
 ## Done when
 
