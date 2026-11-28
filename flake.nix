@@ -179,7 +179,7 @@
             (rust pkgs)
             pkgs.cargo-deny
             pkgs.cargo-nextest
-            pkgs.nodejs_24
+            pkgs.nodejs_26
             pkgs.pnpm_12
             pnpm-release-management.packages.${pkgs.stdenv.hostPlatform.system}.sandbox
           ];
