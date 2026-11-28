@@ -1,8 +1,8 @@
 # tsconfig-roles
 
-Eleven rules that keep a repository's tsconfig files to a closed set of roles. The
-last five are multifile rules, written like `typecheck-build-mode`: they join the
-files of one directory.
+Eleven rules that keep a repository's tsconfig files to a closed set of roles.
+All but `tsconfig-file-name` are multifile rules, written like
+`typecheck-build-mode`: they join the files of one directory.
 
 - `tsconfig-file-name` (path rule) fails a `tsconfig*.json` that is not
   `tsconfig.json`, `tsconfig.app.json`, `tsconfig.node.json`, `tsconfig.test.json`
