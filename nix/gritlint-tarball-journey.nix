@@ -7,7 +7,7 @@
 {
   lib,
   runCommand,
-  nodejs_24,
+  nodejs_26,
   pnpm_12,
   binutils-unwrapped,
   # `packages.<system>.gritlint-tarball`: one `.tgz` file
@@ -27,7 +27,7 @@ in
 runCommand "gritlint-tarball-journey"
   {
     nativeBuildInputs = [
-      nodejs_24
+      nodejs_26
       pnpm_12
       binutils-unwrapped
     ];

@@ -4,7 +4,7 @@ gritlint is a Rust workspace (`apps/gritlint` for the CLI, `crates/gritlint_core
 
 ## Setup
 
-The flake provides the toolchain, including Rust, cargo-deny, cargo-nextest, Node 24 and pnpm 12:
+The flake provides the toolchain, including Rust, cargo-deny, cargo-nextest, Node 26 and pnpm 12:
 
 ```bash
 git clone https://github.com/systemfsoftware/gritlint.git
