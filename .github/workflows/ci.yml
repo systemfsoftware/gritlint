@@ -83,7 +83,7 @@ jobs:
           mkdir -p "$RUNNER_TEMP/release"
           cp -L "$(nix build --no-link --rebuild --print-out-paths ".#packages.$SYSTEM.workspace-tarballs")"/* "$RUNNER_TEMP/release/"
           cp -L "$(nix build --no-link --print-out-paths ".#packages.$SYSTEM.gritlint-binaries")"/* "$RUNNER_TEMP/release/"
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         with:
           name: release-${{ matrix.system }}
           path: ${{ runner.temp }}/release/
