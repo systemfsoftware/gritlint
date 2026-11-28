@@ -1,0 +1,1 @@
+tsconfig-roles/tsconfig-test-declarations tsconfig.test.json:2:3-2:41
