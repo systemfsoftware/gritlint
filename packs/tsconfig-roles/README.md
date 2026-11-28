@@ -1,8 +1,8 @@
 # tsconfig-roles
 
-Ten rules that keep a repository's tsconfig files to a closed set of roles. The
-last four are multifile rules, written like `typecheck-build-mode`: they join the
-files of one directory.
+Eleven rules that keep a repository's tsconfig files to a closed set of roles.
+All but `tsconfig-file-name` are multifile rules, written like
+`typecheck-build-mode`: they join the files of one directory.
 
 - `tsconfig-file-name` (path rule) fails a `tsconfig*.json` that is not
   `tsconfig.json`, `tsconfig.app.json`, `tsconfig.node.json`, `tsconfig.test.json`
@@ -29,6 +29,12 @@ files of one directory.
   runtime (`node`, `@types/node`, `@cloudflare/workers-types`).
 - `tsconfig-runtime-types-extend-dom` fails the mirror: runtime `types`, no `lib`
   of its own, `extends` a same-directory file whose `lib` lists `DOM`.
+- `tsconfig-test-declarations` fails a `tsconfig.test.json` that turns on
+  `composite`, `declaration` or `emitDeclarationOnly`, in its own
+  `compilerOptions` or through a same-directory `extends`, and one that extends a
+  file gritlint cannot follow without setting all three to `false` itself. A test
+  project's declarations have no consumer, and computing them can inline a large
+  non-exported type at every use site.
 
 ## What the rules cannot see
 
@@ -39,7 +45,7 @@ cover.
   of one directory (`partition_multifile` in the engine groups the scanned files by
   parent directory). A multifile join across directories, such as a child config
   and the `../../tsconfig.base.json` it extends, never sees the second file. The
-  two `extends` rules therefore follow only `"extends": "./<file>"` in the same
+  `extends` rules therefore follow only `"extends": "./<file>"` in the same
   directory, one hop.
 - **`extends` through a package name** (`@scope/tsconfig/app.json`) points into
   `node_modules` or a workspace package, not into the directory. It is not

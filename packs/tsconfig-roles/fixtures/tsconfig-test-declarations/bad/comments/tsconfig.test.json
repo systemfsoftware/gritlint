@@ -1,0 +1,7 @@
+// JSONC: gritlint must judge this file, not skip it
+{
+  /* the flag below is still a violation */
+  "compilerOptions": {
+    "composite": true
+  }
+}

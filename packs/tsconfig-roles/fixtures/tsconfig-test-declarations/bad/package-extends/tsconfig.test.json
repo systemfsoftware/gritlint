@@ -1,0 +1,6 @@
+{
+  "extends": "@scope/tsconfig/test.json",
+  "compilerOptions": {
+    "types": ["node"]
+  }
+}
