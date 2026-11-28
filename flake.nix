@@ -9,7 +9,7 @@
     };
     crane.url = "github:ipetkov/crane/v0.24.0";
     pnpm-release-management = {
-      url = "github:systemfsoftware/pnpm-release-management/b9b4a1d48cc16241b33f9afd8ab99b82b05ce04f";
+      url = "github:systemfsoftware/pnpm-release-management/3da32f4fa6f01af0a9a0cdab5cc8eb5d134b2de3";
       inputs.nixpkgs.follows = "nixpkgs";
     };
   };
